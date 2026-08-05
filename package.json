@@ -1,8 +1,9 @@
 {
   "name": "local-video-manager",
   "productName": "Local Video Manager",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local-first video library manager for Windows desktops",
+  "author": "Local Video Manager Team",
   "repository": {
     "type": "git",
     "url": "https://github.com/ilseong-xofl/local-video-manager.git"
