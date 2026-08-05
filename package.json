@@ -31,7 +31,13 @@
       "better-sqlite3",
       "electron",
       "electron-winstaller"
-    ]
+    ],
+    "overrides": {
+      "tar": "7.5.22",
+      "tmp": "0.2.7",
+      "uuid": "11.1.1",
+      "webpack-dev-server": "5.2.6"
+    }
   },
   "dependencies": {
     "better-sqlite3": "13.0.3",
