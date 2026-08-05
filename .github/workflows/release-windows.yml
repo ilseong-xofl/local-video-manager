@@ -1,0 +1,49 @@
+name: Release Windows
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - name: Verify release tag
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $expectedTag = "v$version"
+          if ($env:GITHUB_REF_NAME -ne $expectedTag) {
+            throw "Release tag must be $expectedTag, received $env:GITHUB_REF_NAME"
+          }
+      - run: pnpm make --arch=x64
+      - uses: actions/upload-artifact@v7
+        with:
+          name: local-video-manager-windows-x64
+          path: out/make/squirrel.windows/x64/
+          if-no-files-found: error
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $artifacts = Get-ChildItem "out/make/squirrel.windows/x64" -File |
+            ForEach-Object { $_.FullName }
+
+          gh release view $env:GITHUB_REF_NAME *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:GITHUB_REF_NAME @artifacts --clobber
+          } else {
+            gh release create $env:GITHUB_REF_NAME @artifacts --verify-tag --generate-notes
+          }

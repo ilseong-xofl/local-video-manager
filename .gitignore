@@ -1,0 +1,12 @@
+node_modules/
+.webpack/
+out/
+coverage/
+*.log
+*.tsbuildinfo
+.DS_Store
+.env
+.env.*
+!.env.example
+local-video-manager.sqlite*
+RESEARCH/
