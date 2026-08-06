@@ -14,6 +14,7 @@ const VIDEO_EXTENSIONS = new Set([
   '.webm',
   '.wmv',
 ]);
+const MAX_FOLDER_DEPTH = 3;
 
 export interface CachedVideoFile {
   contentHash: string;
@@ -27,6 +28,7 @@ export interface ScannedVideoFile extends CachedVideoFile {
 }
 
 export interface VideoDirectoryScan {
+  excludedDirectoryCount: number;
   files: ScannedVideoFile[];
   hashedFileCount: number;
   reusedHashCount: number;
@@ -51,9 +53,12 @@ function hashFile(filePath: string): Promise<string> {
   });
 }
 
-async function collectVideoPaths(rootPath: string): Promise<string[]> {
-  const directories = [rootPath];
+async function collectVideoPaths(
+  rootPath: string,
+): Promise<{ excludedDirectoryCount: number; videoPaths: string[] }> {
+  const directories = [{ depth: 1, path: rootPath }];
   const videoPaths: string[] = [];
+  let excludedDirectoryCount = 0;
 
   while (directories.length > 0) {
     const directory = directories.pop();
@@ -61,7 +66,7 @@ async function collectVideoPaths(rootPath: string): Promise<string[]> {
       break;
     }
 
-    const entries = await readdir(directory, { withFileTypes: true });
+    const entries = await readdir(directory.path, { withFileTypes: true });
     entries.sort((left, right) => left.name.localeCompare(right.name));
 
     for (const entry of entries) {
@@ -69,16 +74,23 @@ async function collectVideoPaths(rootPath: string): Promise<string[]> {
         continue;
       }
 
-      const entryPath = join(directory, entry.name);
+      const entryPath = join(directory.path, entry.name);
       if (entry.isDirectory()) {
-        directories.push(entryPath);
+        if (directory.depth < MAX_FOLDER_DEPTH) {
+          directories.push({ depth: directory.depth + 1, path: entryPath });
+        } else {
+          excludedDirectoryCount += 1;
+        }
       } else if (entry.isFile() && isVideoFile(entry.name)) {
         videoPaths.push(entryPath);
       }
     }
   }
 
-  return videoPaths.sort((left, right) => left.localeCompare(right));
+  return {
+    excludedDirectoryCount,
+    videoPaths: videoPaths.sort((left, right) => left.localeCompare(right)),
+  };
 }
 
 export async function scanVideoDirectory(
@@ -89,8 +101,9 @@ export async function scanVideoDirectory(
   const files: ScannedVideoFile[] = [];
   let hashedFileCount = 0;
   let reusedHashCount = 0;
+  const collected = await collectVideoPaths(rootPath);
 
-  for (const filePath of await collectVideoPaths(rootPath)) {
+  for (const filePath of collected.videoPaths) {
     const fileStat = await stat(filePath);
     const relativePath = normalizeRelativePath(rootPath, filePath);
     const modifiedAtMs = Math.trunc(fileStat.mtimeMs);
@@ -114,5 +127,10 @@ export async function scanVideoDirectory(
     });
   }
 
-  return { files, hashedFileCount, reusedHashCount };
+  return {
+    excludedDirectoryCount: collected.excludedDirectoryCount,
+    files,
+    hashedFileCount,
+    reusedHashCount,
+  };
 }

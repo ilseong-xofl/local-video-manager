@@ -3,12 +3,14 @@ export const IPC_CHANNELS = {
   chooseLibraryRoot: 'library:choose-root',
   getLibraryVideoPage: 'library:get-video-page',
   getVideoMetadata: 'library:get-video-metadata',
+  searchVideoMetadata: 'library:search-video-metadata',
   saveVideoMetadata: 'library:save-video-metadata',
   scanLibrary: 'library:scan',
 } as const;
 
 export const VIDEO_SOURCE_URL_MAX_LENGTH = 2_048;
 export const VIDEO_SOURCE_CAPTION_MAX_LENGTH = 50_000;
+export const VIDEO_METADATA_SEARCH_MAX_LENGTH = 200;
 
 export interface LibraryStats {
   fileCount: number;
@@ -19,6 +21,7 @@ export interface LibraryStats {
 export interface VideoScanSummary extends LibraryStats {
   addedVideoCount: number;
   duplicateFileCount: number;
+  excludedDirectoryCount: number;
   hashedFileCount: number;
   removedFileCount: number;
   reusedHashCount: number;
@@ -29,6 +32,8 @@ export interface LibraryVideo {
   fileName: string;
   metadataRegistered: boolean;
   metadataUpdatedAt: string | null;
+  modifiedAtMs: number;
+  registeredAt: string;
   relativePath: string;
   sizeBytes: number;
 }
@@ -76,6 +81,7 @@ export interface VideoMetadataSnapshot extends VideoMetadataInput {
 }
 
 export interface VideoMetadataRevision extends VideoMetadataInput {
+  copiedFromContentHash: string | null;
   createdAt: string;
   id: number;
 }
@@ -86,11 +92,27 @@ export interface VideoMetadataDetail {
   revisions: VideoMetadataRevision[];
 }
 
+export interface VideoMetadataSearchResult extends VideoMetadataInput {
+  contentHash: string;
+  fileName: string;
+  filePresent: boolean;
+  registeredAt: string;
+  thumbnailDataUrl: string | null;
+}
+
 export interface LocalVideoManagerApi {
   getBootstrapState(): Promise<BootstrapState>;
   chooseLibraryRoot(): Promise<ChooseLibraryRootResult>;
   getLibraryVideoPage(pageIndex: number): Promise<LibraryVideoPage>;
   getVideoMetadata(contentHash: string): Promise<VideoMetadataDetail>;
-  saveVideoMetadata(contentHash: string, input: VideoMetadataInput): Promise<VideoMetadataDetail>;
+  searchVideoMetadata(
+    query: string,
+    excludeContentHash: string,
+  ): Promise<VideoMetadataSearchResult[]>;
+  saveVideoMetadata(
+    contentHash: string,
+    input: VideoMetadataInput,
+    copiedFromContentHash?: string | null,
+  ): Promise<VideoMetadataDetail>;
   scanLibrary(): Promise<ScanLibraryResult>;
 }

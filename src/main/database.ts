@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 
 import Database from 'better-sqlite3';
 
@@ -10,14 +10,17 @@ import type {
   VideoMetadataDetail,
   VideoMetadataInput,
   VideoMetadataRevision,
+  VideoMetadataSearchResult,
   VideoMetadataSnapshot,
   VideoScanSummary,
 } from '../shared/contracts';
 import type { ScannedVideoFile } from './video-scanner';
 
 const LIBRARY_ID_KEY = 'library_id';
-const LIBRARY_ROOT_KEY = 'library_root';
-const LAST_SCANNED_AT_KEY = 'last_scanned_at';
+const ACTIVE_MANAGED_FOLDER_ID_KEY = 'active_managed_folder_id';
+const LEGACY_LIBRARY_ROOT_KEY = 'library_root';
+const LEGACY_LAST_SCANNED_AT_KEY = 'last_scanned_at';
+const METADATA_SEARCH_LIMIT = 50;
 
 interface SettingRow {
   value: string;
@@ -36,16 +39,47 @@ interface RelativePathRow {
   relativePath: string;
 }
 
+interface ManagedFolderRow {
+  id: number;
+  lastScannedAt: string | null;
+  rootPath: string;
+}
+
 interface LibraryVideoRow {
   contentHash: string;
   fileName: string;
   metadataUpdatedAt: string | null;
+  modifiedAtMs: number;
+  registeredAt: string;
   relativePath: string;
   sizeBytes: number;
 }
 
+interface MetadataSearchRow {
+  contentHash: string;
+  fileName: string;
+  filePresent: number;
+  registeredAt: string;
+  sourceCaption: string | null;
+  sourceUrl: string | null;
+}
+
+interface TableInfoRow {
+  name: string;
+}
+
 interface VideoExistsRow {
   found: number;
+}
+
+type MetadataSearchRecord = Omit<VideoMetadataSearchResult, 'thumbnailDataUrl'>;
+
+function normalizeLibraryRoot(rootPath: string): { normalizedPath: string; rootPath: string } {
+  const resolvedPath = resolve(rootPath);
+  return {
+    normalizedPath: process.platform === 'win32' ? resolvedPath.toLowerCase() : resolvedPath,
+    rootPath: resolvedPath,
+  };
 }
 
 export class AppDatabase {
@@ -71,22 +105,20 @@ export class AppDatabase {
   }
 
   public getLibraryRoot(): string | null {
-    return this.getSetting(LIBRARY_ROOT_KEY);
+    return this.getActiveManagedFolder()?.rootPath ?? null;
   }
 
   public setLibraryRoot(rootPath: string): void {
-    if (this.getLibraryRoot() === rootPath) {
-      return;
-    }
-
-    this.database.transaction(() => {
-      this.setSetting(LIBRARY_ROOT_KEY, rootPath);
-      this.database.prepare('DELETE FROM video_files').run();
-      this.deleteSetting(LAST_SCANNED_AT_KEY);
-    })();
+    const folderId = this.getOrCreateManagedFolder(rootPath);
+    this.setSetting(ACTIVE_MANAGED_FOLDER_ID_KEY, String(folderId));
   }
 
   public getLibraryStats(): LibraryStats {
+    const managedFolder = this.getActiveManagedFolder();
+    if (!managedFolder) {
+      return { fileCount: 0, lastScannedAt: null, uniqueVideoCount: 0 };
+    }
+
     const row = this.database
       .prepare(
         `
@@ -94,18 +126,24 @@ export class AppDatabase {
             COUNT(*) AS fileCount,
             COUNT(DISTINCT content_hash) AS uniqueVideoCount
           FROM video_files
+          WHERE managed_folder_id = ? AND is_present = 1
         `,
       )
-      .get() as CountRow;
+      .get(managedFolder.id) as CountRow;
 
     return {
       fileCount: row.fileCount,
-      lastScannedAt: this.getSetting(LAST_SCANNED_AT_KEY),
+      lastScannedAt: managedFolder.lastScannedAt,
       uniqueVideoCount: row.uniqueVideoCount,
     };
   }
 
   public getVideoFileCache(): ScannedVideoFile[] {
+    const managedFolder = this.getActiveManagedFolder();
+    if (!managedFolder) {
+      return [];
+    }
+
     return this.database
       .prepare(
         `
@@ -116,13 +154,19 @@ export class AppDatabase {
             relative_path AS relativePath,
             size_bytes AS sizeBytes
           FROM video_files
+          WHERE managed_folder_id = ? AND is_present = 1
           ORDER BY relative_path
         `,
       )
-      .all() as ScannedVideoFile[];
+      .all(managedFolder.id) as ScannedVideoFile[];
   }
 
   public getLibraryVideos(limit: number, offset: number): LibraryVideo[] {
+    const managedFolder = this.getActiveManagedFolder();
+    if (!managedFolder) {
+      return [];
+    }
+
     const rows = this.database
       .prepare(
         `
@@ -130,29 +174,38 @@ export class AppDatabase {
             SELECT
               content_hash AS contentHash,
               file_name AS fileName,
+              modified_at_ms AS modifiedAtMs,
               relative_path AS relativePath,
               size_bytes AS sizeBytes,
               ROW_NUMBER() OVER (
                 PARTITION BY content_hash
-                ORDER BY relative_path COLLATE NOCASE, relative_path
+                ORDER BY modified_at_ms DESC, relative_path COLLATE NOCASE, relative_path
               ) AS position
             FROM video_files
+            WHERE managed_folder_id = ? AND is_present = 1
           )
           SELECT
             ranked_files.contentHash,
             ranked_files.fileName,
             video_metadata.updated_at AS metadataUpdatedAt,
+            ranked_files.modifiedAtMs,
+            videos.created_at AS registeredAt,
             ranked_files.relativePath,
             ranked_files.sizeBytes
           FROM ranked_files
+          JOIN videos ON videos.content_hash = ranked_files.contentHash
           LEFT JOIN video_metadata
             ON video_metadata.content_hash = ranked_files.contentHash
           WHERE ranked_files.position = 1
-          ORDER BY ranked_files.fileName COLLATE NOCASE, ranked_files.relativePath
+          ORDER BY
+            videos.created_at DESC,
+            ranked_files.modifiedAtMs DESC,
+            ranked_files.fileName COLLATE NOCASE,
+            ranked_files.relativePath
           LIMIT ? OFFSET ?
         `,
       )
-      .all(limit, offset) as LibraryVideoRow[];
+      .all(managedFolder.id, limit, offset) as LibraryVideoRow[];
 
     return rows.map((row) => ({
       ...row,
@@ -161,24 +214,38 @@ export class AppDatabase {
   }
 
   public getLibraryVideoByHash(contentHash: string): LibraryVideo | null {
+    const managedFolder = this.getActiveManagedFolder();
+    if (!managedFolder) {
+      return null;
+    }
+
     const row = this.database
       .prepare(
         `
-            SELECT
-              video_files.content_hash AS contentHash,
-              video_files.file_name AS fileName,
-              video_metadata.updated_at AS metadataUpdatedAt,
-              video_files.relative_path AS relativePath,
-              video_files.size_bytes AS sizeBytes
-            FROM video_files
-            LEFT JOIN video_metadata
-              ON video_metadata.content_hash = video_files.content_hash
-            WHERE video_files.content_hash = ?
-            ORDER BY video_files.relative_path COLLATE NOCASE, video_files.relative_path
-            LIMIT 1
+          SELECT
+            video_files.content_hash AS contentHash,
+            video_files.file_name AS fileName,
+            video_metadata.updated_at AS metadataUpdatedAt,
+            video_files.modified_at_ms AS modifiedAtMs,
+            videos.created_at AS registeredAt,
+            video_files.relative_path AS relativePath,
+            video_files.size_bytes AS sizeBytes
+          FROM video_files
+          JOIN videos ON videos.content_hash = video_files.content_hash
+          LEFT JOIN video_metadata
+            ON video_metadata.content_hash = video_files.content_hash
+          WHERE
+            video_files.managed_folder_id = ?
+            AND video_files.content_hash = ?
+            AND video_files.is_present = 1
+          ORDER BY
+            video_files.modified_at_ms DESC,
+            video_files.relative_path COLLATE NOCASE,
+            video_files.relative_path
+          LIMIT 1
         `,
       )
-      .get(contentHash) as LibraryVideoRow | undefined;
+      .get(managedFolder.id, contentHash) as LibraryVideoRow | undefined;
 
     return row
       ? {
@@ -207,6 +274,7 @@ export class AppDatabase {
         `
           SELECT
             id,
+            copied_from_content_hash AS copiedFromContentHash,
             source_caption AS sourceCaption,
             source_url AS sourceUrl,
             created_at AS createdAt
@@ -224,8 +292,85 @@ export class AppDatabase {
     };
   }
 
-  public saveVideoMetadata(contentHash: string, input: VideoMetadataInput): VideoMetadataDetail {
+  public searchVideoMetadata(query: string, excludeContentHash: string): MetadataSearchRecord[] {
+    const searchPattern = `%${query}%`;
+    const rows = this.database
+      .prepare(
+        `
+          WITH ranked_locations AS (
+            SELECT
+              content_hash AS contentHash,
+              file_name AS fileName,
+              ROW_NUMBER() OVER (
+                PARTITION BY content_hash
+                ORDER BY is_present DESC, last_seen_at DESC, id DESC
+              ) AS position
+            FROM video_files
+          ),
+          file_states AS (
+            SELECT content_hash AS contentHash, MAX(is_present) AS filePresent
+            FROM video_files
+            GROUP BY content_hash
+          )
+          SELECT
+            videos.content_hash AS contentHash,
+            COALESCE(ranked_locations.fileName, '알 수 없는 영상') AS fileName,
+            COALESCE(file_states.filePresent, 0) AS filePresent,
+            videos.created_at AS registeredAt,
+            video_metadata.source_caption AS sourceCaption,
+            video_metadata.source_url AS sourceUrl
+          FROM videos
+          JOIN video_metadata ON video_metadata.content_hash = videos.content_hash
+          LEFT JOIN ranked_locations
+            ON ranked_locations.contentHash = videos.content_hash
+            AND ranked_locations.position = 1
+          LEFT JOIN file_states ON file_states.contentHash = videos.content_hash
+          WHERE
+            videos.content_hash <> ?
+            AND (
+              videos.content_hash LIKE ?
+              OR COALESCE(video_metadata.source_caption, '') LIKE ? COLLATE NOCASE
+              OR COALESCE(video_metadata.source_url, '') LIKE ? COLLATE NOCASE
+              OR EXISTS (
+                SELECT 1
+                FROM video_files AS matching_files
+                WHERE
+                  matching_files.content_hash = videos.content_hash
+                  AND matching_files.file_name LIKE ? COLLATE NOCASE
+              )
+            )
+          ORDER BY filePresent DESC, videos.created_at DESC, fileName COLLATE NOCASE
+          LIMIT ?
+        `,
+      )
+      .all(
+        excludeContentHash,
+        searchPattern,
+        searchPattern,
+        searchPattern,
+        searchPattern,
+        METADATA_SEARCH_LIMIT,
+      ) as MetadataSearchRow[];
+
+    return rows.map((row) => ({
+      ...row,
+      filePresent: row.filePresent === 1,
+    }));
+  }
+
+  public saveVideoMetadata(
+    contentHash: string,
+    input: VideoMetadataInput,
+    copiedFromContentHash: string | null = null,
+  ): VideoMetadataDetail {
     this.assertVideoExists(contentHash);
+    if (copiedFromContentHash) {
+      if (copiedFromContentHash === contentHash) {
+        throw new Error('A video cannot copy metadata from itself.');
+      }
+      this.assertVideoExists(copiedFromContentHash);
+    }
+
     const existing = this.database
       .prepare(
         `
@@ -268,11 +413,12 @@ export class AppDatabase {
               content_hash,
               source_url,
               source_caption,
+              copied_from_content_hash,
               created_at
-            ) VALUES (?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?)
           `,
         )
-        .run(contentHash, input.sourceUrl, input.sourceCaption, savedAt);
+        .run(contentHash, input.sourceUrl, input.sourceCaption, copiedFromContentHash, savedAt);
     })();
 
     return this.getVideoMetadata(contentHash);
@@ -280,8 +426,14 @@ export class AppDatabase {
 
   public syncVideoFiles(
     files: readonly ScannedVideoFile[],
-    scanCounts: Pick<VideoScanSummary, 'hashedFileCount' | 'reusedHashCount'>,
+    scanCounts: Pick<VideoScanSummary, 'hashedFileCount' | 'reusedHashCount'> &
+      Partial<Pick<VideoScanSummary, 'excludedDirectoryCount'>>,
   ): VideoScanSummary {
+    const managedFolder = this.getActiveManagedFolder();
+    if (!managedFolder) {
+      throw new Error('No managed folder is selected.');
+    }
+
     const existingHashes = new Set(
       (
         this.database
@@ -292,8 +444,14 @@ export class AppDatabase {
     const previousPaths = new Set(
       (
         this.database
-          .prepare('SELECT relative_path AS relativePath FROM video_files')
-          .all() as RelativePathRow[]
+          .prepare(
+            `
+              SELECT relative_path AS relativePath
+              FROM video_files
+              WHERE managed_folder_id = ? AND is_present = 1
+            `,
+          )
+          .all(managedFolder.id) as RelativePathRow[]
       ).map((row) => row.relativePath),
     );
     const currentHashes = new Set(files.map((file) => file.contentHash));
@@ -303,15 +461,24 @@ export class AppDatabase {
     const insertVideo = this.database.prepare(
       'INSERT OR IGNORE INTO videos (content_hash, created_at) VALUES (?, ?)',
     );
-    const insertFile = this.database.prepare(`
+    const upsertFile = this.database.prepare(`
       INSERT INTO video_files (
+        managed_folder_id,
         relative_path,
         content_hash,
         file_name,
         size_bytes,
         modified_at_ms,
-        updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?)
+        first_seen_at,
+        last_seen_at,
+        is_present
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+      ON CONFLICT(managed_folder_id, relative_path, content_hash) DO UPDATE SET
+        file_name = excluded.file_name,
+        size_bytes = excluded.size_bytes,
+        modified_at_ms = excluded.modified_at_ms,
+        last_seen_at = excluded.last_seen_at,
+        is_present = 1
     `);
 
     this.database.transaction(() => {
@@ -319,24 +486,38 @@ export class AppDatabase {
         insertVideo.run(file.contentHash, scannedAt);
       }
 
-      this.database.prepare('DELETE FROM video_files').run();
+      this.database
+        .prepare(
+          `
+            UPDATE video_files
+            SET is_present = 0
+            WHERE managed_folder_id = ? AND is_present = 1
+          `,
+        )
+        .run(managedFolder.id);
+
       for (const file of files) {
-        insertFile.run(
+        upsertFile.run(
+          managedFolder.id,
           file.relativePath,
           file.contentHash,
           file.fileName,
           file.sizeBytes,
           file.modifiedAtMs,
           scannedAt,
+          scannedAt,
         );
       }
 
-      this.setSetting(LAST_SCANNED_AT_KEY, scannedAt);
+      this.database
+        .prepare('UPDATE managed_folders SET last_scanned_at = ? WHERE id = ?')
+        .run(scannedAt, managedFolder.id);
     })();
 
     return {
       addedVideoCount: [...currentHashes].filter((hash) => !existingHashes.has(hash)).length,
       duplicateFileCount: files.length - currentHashes.size,
+      excludedDirectoryCount: scanCounts.excludedDirectoryCount ?? 0,
       fileCount: files.length,
       hashedFileCount: scanCounts.hashedFileCount,
       lastScannedAt: scannedAt,
@@ -363,17 +544,13 @@ export class AppDatabase {
         created_at TEXT NOT NULL
       );
 
-      CREATE TABLE IF NOT EXISTS video_files (
-        relative_path TEXT PRIMARY KEY,
-        content_hash TEXT NOT NULL REFERENCES videos(content_hash),
-        file_name TEXT NOT NULL,
-        size_bytes INTEGER NOT NULL,
-        modified_at_ms INTEGER NOT NULL,
-        updated_at TEXT NOT NULL
+      CREATE TABLE IF NOT EXISTS managed_folders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        root_path TEXT NOT NULL,
+        normalized_path TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL,
+        last_scanned_at TEXT
       );
-
-      CREATE INDEX IF NOT EXISTS video_files_content_hash_idx
-      ON video_files(content_hash);
 
       CREATE TABLE IF NOT EXISTS video_metadata (
         content_hash TEXT PRIMARY KEY REFERENCES videos(content_hash),
@@ -388,13 +565,186 @@ export class AppDatabase {
         content_hash TEXT NOT NULL REFERENCES videos(content_hash),
         source_url TEXT,
         source_caption TEXT,
+        copied_from_content_hash TEXT REFERENCES videos(content_hash),
         created_at TEXT NOT NULL,
         CHECK (source_url IS NOT NULL OR source_caption IS NOT NULL)
       );
+    `);
+
+    const legacyRoot = this.getSetting(LEGACY_LIBRARY_ROOT_KEY);
+    const legacyLastScannedAt = this.getSetting(LEGACY_LAST_SCANNED_AT_KEY);
+    const legacyFolderId = legacyRoot
+      ? this.getOrCreateManagedFolder(legacyRoot, legacyLastScannedAt)
+      : null;
+
+    if (!this.tableExists('video_files')) {
+      this.createVideoFilesTable();
+    } else if (!this.columnExists('video_files', 'managed_folder_id')) {
+      this.migrateLegacyVideoFiles(legacyFolderId);
+    }
+
+    if (!this.columnExists('video_metadata_revisions', 'copied_from_content_hash')) {
+      this.database.exec(`
+        ALTER TABLE video_metadata_revisions
+        ADD COLUMN copied_from_content_hash TEXT REFERENCES videos(content_hash)
+      `);
+    }
+
+    this.createIndexes();
+
+    if (!this.getActiveManagedFolder() && legacyFolderId) {
+      this.setSetting(ACTIVE_MANAGED_FOLDER_ID_KEY, String(legacyFolderId));
+    }
+    this.deleteSetting(LEGACY_LIBRARY_ROOT_KEY);
+    this.deleteSetting(LEGACY_LAST_SCANNED_AT_KEY);
+  }
+
+  private migrateLegacyVideoFiles(managedFolderId: number | null): void {
+    this.database.transaction(() => {
+      this.database.exec('ALTER TABLE video_files RENAME TO video_files_legacy');
+      this.createVideoFilesTable();
+
+      if (managedFolderId) {
+        this.database
+          .prepare(
+            `
+              INSERT INTO video_files (
+                managed_folder_id,
+                relative_path,
+                content_hash,
+                file_name,
+                size_bytes,
+                modified_at_ms,
+                first_seen_at,
+                last_seen_at,
+                is_present
+              )
+              SELECT
+                ?,
+                legacy.relative_path,
+                legacy.content_hash,
+                legacy.file_name,
+                legacy.size_bytes,
+                legacy.modified_at_ms,
+                videos.created_at,
+                legacy.updated_at,
+                1
+              FROM video_files_legacy AS legacy
+              JOIN videos ON videos.content_hash = legacy.content_hash
+            `,
+          )
+          .run(managedFolderId);
+      }
+
+      this.database.exec('DROP TABLE video_files_legacy');
+    })();
+  }
+
+  private createVideoFilesTable(): void {
+    this.database.exec(`
+      CREATE TABLE video_files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        managed_folder_id INTEGER NOT NULL REFERENCES managed_folders(id),
+        relative_path TEXT NOT NULL,
+        content_hash TEXT NOT NULL REFERENCES videos(content_hash),
+        file_name TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        modified_at_ms INTEGER NOT NULL,
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        is_present INTEGER NOT NULL CHECK (is_present IN (0, 1)),
+        UNIQUE(managed_folder_id, relative_path, content_hash)
+      )
+    `);
+  }
+
+  private createIndexes(): void {
+    this.database.exec(`
+      CREATE INDEX IF NOT EXISTS video_files_content_hash_idx
+      ON video_files(content_hash);
+
+      CREATE INDEX IF NOT EXISTS video_files_managed_folder_present_idx
+      ON video_files(managed_folder_id, is_present);
+
+      CREATE UNIQUE INDEX IF NOT EXISTS video_files_current_path_idx
+      ON video_files(managed_folder_id, relative_path)
+      WHERE is_present = 1;
 
       CREATE INDEX IF NOT EXISTS video_metadata_revisions_content_hash_idx
       ON video_metadata_revisions(content_hash, id DESC);
     `);
+  }
+
+  private getOrCreateManagedFolder(rootPath: string, lastScannedAt: string | null = null): number {
+    const normalized = normalizeLibraryRoot(rootPath);
+    const existing = this.database
+      .prepare('SELECT id FROM managed_folders WHERE normalized_path = ?')
+      .get(normalized.normalizedPath) as Pick<ManagedFolderRow, 'id'> | undefined;
+
+    if (existing) {
+      this.database
+        .prepare(
+          `
+            UPDATE managed_folders
+            SET
+              root_path = ?,
+              last_scanned_at = COALESCE(last_scanned_at, ?)
+            WHERE id = ?
+          `,
+        )
+        .run(normalized.rootPath, lastScannedAt, existing.id);
+      return existing.id;
+    }
+
+    const result = this.database
+      .prepare(
+        `
+          INSERT INTO managed_folders (
+            root_path,
+            normalized_path,
+            created_at,
+            last_scanned_at
+          ) VALUES (?, ?, ?, ?)
+        `,
+      )
+      .run(normalized.rootPath, normalized.normalizedPath, new Date().toISOString(), lastScannedAt);
+    return Number(result.lastInsertRowid);
+  }
+
+  private getActiveManagedFolder(): ManagedFolderRow | null {
+    const folderId = Number(this.getSetting(ACTIVE_MANAGED_FOLDER_ID_KEY));
+    if (!Number.isSafeInteger(folderId) || folderId <= 0) {
+      return null;
+    }
+
+    const row = this.database
+      .prepare(
+        `
+          SELECT
+            id,
+            root_path AS rootPath,
+            last_scanned_at AS lastScannedAt
+          FROM managed_folders
+          WHERE id = ?
+        `,
+      )
+      .get(folderId) as ManagedFolderRow | undefined;
+    return row ?? null;
+  }
+
+  private tableExists(tableName: string): boolean {
+    return Boolean(
+      this.database
+        .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
+        .get(tableName),
+    );
+  }
+
+  private columnExists(tableName: string, columnName: string): boolean {
+    const columns = this.database
+      .prepare(`PRAGMA table_info(${tableName})`)
+      .all() as TableInfoRow[];
+    return columns.some((column) => column.name === columnName);
   }
 
   private assertVideoExists(contentHash: string): void {

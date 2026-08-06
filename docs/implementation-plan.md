@@ -7,19 +7,21 @@
 - Electron Forge + React + TypeScript 구성
 - sandboxed renderer와 typed preload IPC 구성
 - SQLite와 `library_id` 영속화
-- native folder picker 연결
+- native folder picker와 폴더별 scan snapshot 연결
 - Mac/Windows CI와 Squirrel updater 진입점 구성
 
 검증:
 
 - `library_id`가 DB 재실행 후 유지된다.
 - 선택한 폴더가 DB에 유지된다.
+- 폴더를 변경했다가 다시 선택해도 기존 scan cache가 유지된다.
 - lint, typecheck, unit test가 Mac과 Windows에서 통과한다.
 - Windows CI가 packaged app을 생성한다.
 
 ## 1. 폴더 스캔과 exact identity
 
 - 지원 확장자 열거
+- 선택 폴더를 포함한 최대 3단계 재귀 탐색
 - 파일 크기·mtime cache
 - 제한된 동시성의 streaming SHA-256
 - 복사 중 파일의 stat 전후 변경 감지
@@ -38,6 +40,7 @@
 - 첫 유효 프레임 썸네일 생성과 cache
 - 가상화된 영상 grid
 - 검색·상태 filter
+- DB 최초 등록일 최신순 정렬과 파일 수정일 표시
 - 승인된 root 안에서만 동작하는 local media protocol
 - 플레이 팝업
 
@@ -53,6 +56,7 @@
 - `library_id` 범위의 API와 PostgreSQL schema
 - batch idempotent upsert
 - URL·원문 캡션 revision
+- 파일이 없는 과거 영상 검색과 metadata 복사 출처 revision
 - Gemini 서버 proxy
 - input hash·prompt version·model·결과 이력
 - offline outbox와 재시도

@@ -5,9 +5,14 @@ import type {
   LibraryVideoItem,
   LibraryVideoPage,
   VideoMetadataDetail,
+  VideoMetadataSearchResult,
   VideoScanSummary,
 } from '../shared/contracts';
-import { VIDEO_SOURCE_CAPTION_MAX_LENGTH, VIDEO_SOURCE_URL_MAX_LENGTH } from '../shared/contracts';
+import {
+  VIDEO_METADATA_SEARCH_MAX_LENGTH,
+  VIDEO_SOURCE_CAPTION_MAX_LENGTH,
+  VIDEO_SOURCE_URL_MAX_LENGTH,
+} from '../shared/contracts';
 
 function formatScanTime(value: string | null): string {
   return value ? new Date(value).toLocaleString('ko-KR') : '아직 불러오지 않았습니다.';
@@ -19,6 +24,10 @@ function formatFileSize(sizeBytes: number): string {
   }
 
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+function formatVideoDate(value: number | string): string {
+  return new Date(value).toLocaleDateString('ko-KR');
 }
 
 export function App() {
@@ -39,6 +48,15 @@ export function App() {
   const [savingMetadata, setSavingMetadata] = useState(false);
   const [metadataError, setMetadataError] = useState<string | null>(null);
   const [metadataSaved, setMetadataSaved] = useState(false);
+  const [metadataSearchOpen, setMetadataSearchOpen] = useState(false);
+  const [metadataSearchQuery, setMetadataSearchQuery] = useState('');
+  const [metadataSearchResults, setMetadataSearchResults] = useState<VideoMetadataSearchResult[]>(
+    [],
+  );
+  const [metadataSearchAttempted, setMetadataSearchAttempted] = useState(false);
+  const [searchingMetadata, setSearchingMetadata] = useState(false);
+  const [metadataSearchError, setMetadataSearchError] = useState<string | null>(null);
+  const [copiedFromVideo, setCopiedFromVideo] = useState<VideoMetadataSearchResult | null>(null);
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
@@ -63,6 +81,8 @@ export function App() {
       if (event.key === 'Escape') {
         if (playingVideo) {
           closePlayer();
+        } else if (metadataSearchOpen) {
+          setMetadataSearchOpen(false);
         } else {
           closeMetadataEditor();
         }
@@ -76,7 +96,7 @@ export function App() {
       document.body.style.overflow = previousOverflow;
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [editingVideo, playingVideo]);
+  }, [editingVideo, metadataSearchOpen, playingVideo]);
 
   async function loadVideoPage(pageIndex: number) {
     setLoadingVideos(true);
@@ -103,6 +123,9 @@ export function App() {
         setScanSummary(null);
         if (folderChanged) {
           setVideoPage(null);
+          if (result.state.libraryStats.uniqueVideoCount > 0) {
+            await loadVideoPage(0);
+          }
         }
       }
     } catch {
@@ -156,6 +179,12 @@ export function App() {
     setSourceCaption('');
     setMetadataError(null);
     setMetadataSaved(false);
+    setMetadataSearchOpen(false);
+    setMetadataSearchQuery('');
+    setMetadataSearchResults([]);
+    setMetadataSearchAttempted(false);
+    setMetadataSearchError(null);
+    setCopiedFromVideo(null);
     setLoadingMetadata(true);
 
     try {
@@ -175,6 +204,42 @@ export function App() {
     setVideoMetadata(null);
     setMetadataError(null);
     setMetadataSaved(false);
+    setMetadataSearchOpen(false);
+    setMetadataSearchResults([]);
+    setMetadataSearchError(null);
+    setCopiedFromVideo(null);
+  }
+
+  async function searchMetadataSources() {
+    if (!editingVideo || !metadataSearchQuery.trim()) {
+      return;
+    }
+
+    setSearchingMetadata(true);
+    setMetadataSearchError(null);
+    setMetadataSearchAttempted(true);
+
+    try {
+      setMetadataSearchResults(
+        await window.localVideoManager.searchVideoMetadata(
+          metadataSearchQuery,
+          editingVideo.contentHash,
+        ),
+      );
+    } catch {
+      setMetadataSearchError('기존 영상 정보를 검색하지 못했습니다.');
+    } finally {
+      setSearchingMetadata(false);
+    }
+  }
+
+  function copyMetadataFrom(result: VideoMetadataSearchResult) {
+    setSourceUrl(result.sourceUrl ?? '');
+    setSourceCaption(result.sourceCaption ?? '');
+    setCopiedFromVideo(result);
+    setMetadataSearchOpen(false);
+    setMetadataSaved(false);
+    setMetadataError(null);
   }
 
   async function saveMetadata(event: React.FormEvent<HTMLFormElement>) {
@@ -188,14 +253,19 @@ export function App() {
     setMetadataSaved(false);
 
     try {
-      const detail = await window.localVideoManager.saveVideoMetadata(editingVideo.contentHash, {
-        sourceCaption,
-        sourceUrl,
-      });
+      const detail = await window.localVideoManager.saveVideoMetadata(
+        editingVideo.contentHash,
+        {
+          sourceCaption,
+          sourceUrl,
+        },
+        copiedFromVideo?.contentHash ?? null,
+      );
       setVideoMetadata(detail);
       setSourceUrl(detail.current?.sourceUrl ?? '');
       setSourceCaption(detail.current?.sourceCaption ?? '');
       setMetadataSaved(true);
+      setCopiedFromVideo(null);
       setEditingVideo((currentVideo) =>
         currentVideo
           ? {
@@ -298,14 +368,15 @@ export function App() {
           </button>
         </div>
         <p>
-          하위 폴더까지 탐색해 영상 파일을 SHA-256으로 식별합니다. 마지막 불러오기:{' '}
-          {formatScanTime(state?.libraryStats.lastScannedAt ?? null)}
+          선택 폴더를 포함해 최대 3단계까지 탐색하고 영상 파일을 SHA-256으로 식별합니다. 마지막
+          불러오기: {formatScanTime(state?.libraryStats.lastScannedAt ?? null)}
         </p>
         {scanSummary ? (
           <p className="scan-result" role="status">
             총 {scanSummary.fileCount}개 파일 · 고유 영상 {scanSummary.uniqueVideoCount}개 · 새 영상{' '}
             {scanSummary.addedVideoCount}개 · 중복 파일 {scanSummary.duplicateFileCount}개 · 제거된
-            파일 {scanSummary.removedFileCount}개 · 해시 재사용 {scanSummary.reusedHashCount}개
+            파일 {scanSummary.removedFileCount}개 · 깊이 초과 폴더{' '}
+            {scanSummary.excludedDirectoryCount}개 · 해시 재사용 {scanSummary.reusedHashCount}개
           </p>
         ) : null}
       </section>
@@ -369,6 +440,10 @@ export function App() {
                       <span title={video.contentHash}>
                         SHA-256 {video.contentHash.slice(0, 10)}…
                       </span>
+                    </div>
+                    <div className="video-dates">
+                      <span>등록 {formatVideoDate(video.registeredAt)}</span>
+                      <span>수정 {formatVideoDate(video.modifiedAtMs)}</span>
                     </div>
                     <button
                       className={
@@ -498,6 +573,107 @@ export function App() {
             </header>
 
             <form className="metadata-form" onSubmit={(event) => void saveMetadata(event)}>
+              <div className="metadata-import-heading">
+                <div>
+                  <strong>기존 영상 정보 가져오기</strong>
+                  <span>파일이 삭제되어 목록에 없는 영상도 검색할 수 있습니다.</span>
+                </div>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => {
+                    setMetadataSearchOpen((open) => !open);
+                    setMetadataSearchError(null);
+                  }}
+                  disabled={loadingMetadata || savingMetadata}
+                  aria-expanded={metadataSearchOpen}
+                >
+                  {metadataSearchOpen ? '검색 닫기' : '영상 검색'}
+                </button>
+              </div>
+
+              {metadataSearchOpen ? (
+                <section className="metadata-search" aria-label="기존 영상 정보 검색">
+                  <div className="metadata-search-controls">
+                    <input
+                      type="search"
+                      value={metadataSearchQuery}
+                      onChange={(event) => {
+                        setMetadataSearchQuery(event.target.value);
+                        setMetadataSearchAttempted(false);
+                        setMetadataSearchError(null);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          void searchMetadataSources();
+                        }
+                      }}
+                      placeholder="파일명, 캡션, URL 또는 SHA-256 검색"
+                      maxLength={VIDEO_METADATA_SEARCH_MAX_LENGTH}
+                      disabled={searchingMetadata}
+                      aria-label="기존 영상 검색어"
+                      autoFocus
+                    />
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => void searchMetadataSources()}
+                      disabled={searchingMetadata || !metadataSearchQuery.trim()}
+                    >
+                      {searchingMetadata ? '검색 중…' : '검색'}
+                    </button>
+                  </div>
+
+                  {metadataSearchError ? (
+                    <p className="metadata-error" role="alert">
+                      {metadataSearchError}
+                    </p>
+                  ) : null}
+
+                  {metadataSearchResults.length ? (
+                    <ul className="metadata-search-results">
+                      {metadataSearchResults.map((result) => (
+                        <li key={result.contentHash}>
+                          <button type="button" onClick={() => copyMetadataFrom(result)}>
+                            <span className="metadata-search-thumbnail">
+                              {result.thumbnailDataUrl ? (
+                                <img src={result.thumbnailDataUrl} alt="" />
+                              ) : (
+                                <span>미리보기 없음</span>
+                              )}
+                            </span>
+                            <span className="metadata-search-copy">
+                              <strong title={result.fileName}>{result.fileName}</strong>
+                              <span>
+                                DB 등록 {formatVideoDate(result.registeredAt)} ·{' '}
+                                {result.filePresent ? '파일 있음' : '파일 없음'}
+                              </span>
+                              {result.sourceCaption ? (
+                                <span className="metadata-search-caption">
+                                  {result.sourceCaption}
+                                </span>
+                              ) : result.sourceUrl ? (
+                                <span className="metadata-search-caption">{result.sourceUrl}</span>
+                              ) : null}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : metadataSearchAttempted && !searchingMetadata && !metadataSearchError ? (
+                    <p className="metadata-search-empty">일치하는 등록 영상을 찾지 못했습니다.</p>
+                  ) : null}
+                </section>
+              ) : null}
+
+              {copiedFromVideo ? (
+                <p className="metadata-imported" role="status">
+                  <strong>{copiedFromVideo.fileName}</strong>의 정보를 가져왔습니다. 저장해야
+                  반영됩니다.
+                </p>
+              ) : null}
+
               <label>
                 <span>원본 URL</span>
                 <input
@@ -578,6 +754,11 @@ export function App() {
                       <time dateTime={revision.createdAt}>
                         {new Date(revision.createdAt).toLocaleString('ko-KR')}
                       </time>
+                      {revision.copiedFromContentHash ? (
+                        <p className="metadata-history-source">
+                          복사 출처 SHA-256 {revision.copiedFromContentHash.slice(0, 10)}…
+                        </p>
+                      ) : null}
                       {revision.sourceUrl ? (
                         <p className="metadata-history-url" title={revision.sourceUrl}>
                           {revision.sourceUrl}

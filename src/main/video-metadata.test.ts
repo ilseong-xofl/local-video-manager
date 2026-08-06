@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseContentHash, parseVideoMetadataInput } from './video-metadata';
+import {
+  parseContentHash,
+  parseOptionalContentHash,
+  parseVideoMetadataInput,
+  parseVideoMetadataSearchQuery,
+} from './video-metadata';
 
 describe('video metadata input', () => {
   it('normalizes optional URL and caption values', () => {
@@ -38,5 +43,17 @@ describe('video metadata input', () => {
     expect(parseContentHash(contentHash)).toBe(contentHash);
     expect(() => parseContentHash('A'.repeat(64))).toThrow('Invalid video content hash.');
     expect(() => parseContentHash('../video.mp4')).toThrow('Invalid video content hash.');
+    expect(parseOptionalContentHash(null)).toBeNull();
+    expect(parseOptionalContentHash(contentHash)).toBe(contentHash);
+  });
+
+  it('normalizes non-empty metadata search queries', () => {
+    expect(parseVideoMetadataSearchQuery('  humor.mp4  ')).toBe('humor.mp4');
+    expect(() => parseVideoMetadataSearchQuery('   ')).toThrow(
+      'Invalid video metadata search query.',
+    );
+    expect(() => parseVideoMetadataSearchQuery('a'.repeat(201))).toThrow(
+      'Invalid video metadata search query.',
+    );
   });
 });

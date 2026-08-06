@@ -1,4 +1,5 @@
 import {
+  VIDEO_METADATA_SEARCH_MAX_LENGTH,
   VIDEO_SOURCE_CAPTION_MAX_LENGTH,
   VIDEO_SOURCE_URL_MAX_LENGTH,
   type VideoMetadataInput,
@@ -29,6 +30,23 @@ export function parseContentHash(value: unknown): string {
   }
 
   return value;
+}
+
+export function parseOptionalContentHash(value: unknown): string | null {
+  return value === null || value === undefined ? null : parseContentHash(value);
+}
+
+export function parseVideoMetadataSearchQuery(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new Error('Invalid video metadata search query.');
+  }
+
+  const query = value.trim();
+  if (!query || query.length > VIDEO_METADATA_SEARCH_MAX_LENGTH) {
+    throw new Error('Invalid video metadata search query.');
+  }
+
+  return query;
 }
 
 export function parseVideoMetadataInput(value: unknown): VideoMetadataInput {
