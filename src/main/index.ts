@@ -1,14 +1,20 @@
 import { join } from 'node:path';
 
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, nativeImage } from 'electron';
 import squirrelStartup from 'electron-squirrel-startup';
 
 import { AppDatabase } from './database';
 import { registerIpcHandlers } from './ipc';
+import { ThumbnailCache } from './thumbnail-cache';
 import { configureAutoUpdates } from './updates';
 
 let database: AppDatabase | null = null;
 let removeIpcHandlers: (() => void) | null = null;
+
+async function createSystemThumbnail(videoPath: string): Promise<Buffer | null> {
+  const image = await nativeImage.createThumbnailFromPath(videoPath, { width: 480, height: 270 });
+  return image.isEmpty() ? null : image.toJPEG(82);
+}
 
 function createWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
@@ -49,8 +55,13 @@ if (squirrelStartup) {
   app.setAppUserModelId('com.localvideomanager.desktop');
 
   void app.whenReady().then(() => {
-    database = new AppDatabase(join(app.getPath('userData'), 'local-video-manager.sqlite'));
-    removeIpcHandlers = registerIpcHandlers(database);
+    const userDataPath = app.getPath('userData');
+    database = new AppDatabase(join(userDataPath, 'local-video-manager.sqlite'));
+    const thumbnailCache = new ThumbnailCache(
+      join(userDataPath, 'thumbnails'),
+      createSystemThumbnail,
+    );
+    removeIpcHandlers = registerIpcHandlers(database, thumbnailCache);
     createWindow();
 
     setTimeout(configureAutoUpdates, 10_000);

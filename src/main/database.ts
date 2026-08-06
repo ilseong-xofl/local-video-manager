@@ -4,7 +4,7 @@ import { dirname } from 'node:path';
 
 import Database from 'better-sqlite3';
 
-import type { LibraryStats, VideoScanSummary } from '../shared/contracts';
+import type { LibraryStats, LibraryVideo, VideoScanSummary } from '../shared/contracts';
 import type { ScannedVideoFile } from './video-scanner';
 
 const LIBRARY_ID_KEY = 'library_id';
@@ -100,6 +100,32 @@ export class AppDatabase {
         `,
       )
       .all() as ScannedVideoFile[];
+  }
+
+  public getLibraryVideos(limit: number, offset: number): LibraryVideo[] {
+    return this.database
+      .prepare(
+        `
+          WITH ranked_files AS (
+            SELECT
+              content_hash AS contentHash,
+              file_name AS fileName,
+              relative_path AS relativePath,
+              size_bytes AS sizeBytes,
+              ROW_NUMBER() OVER (
+                PARTITION BY content_hash
+                ORDER BY relative_path COLLATE NOCASE, relative_path
+              ) AS position
+            FROM video_files
+          )
+          SELECT contentHash, fileName, relativePath, sizeBytes
+          FROM ranked_files
+          WHERE position = 1
+          ORDER BY fileName COLLATE NOCASE, relativePath
+          LIMIT ? OFFSET ?
+        `,
+      )
+      .all(limit, offset) as LibraryVideo[];
   }
 
   public syncVideoFiles(

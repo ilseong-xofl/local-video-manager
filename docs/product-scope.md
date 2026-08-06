@@ -28,7 +28,8 @@
 7. 로컬 영상 플레이 팝업
 8. URL·원문 캡션 등록과 수정 이력
 9. Gemini 대제목·소제목·캡션·태그 생성과 이력
-10. Windows installer와 자동 업데이트
+10. 로컬 SQLite DB 백업·복원과 영상 폴더 재연결
+11. Windows installer와 자동 업데이트
 
 ## 명시적으로 하지 않는 것
 

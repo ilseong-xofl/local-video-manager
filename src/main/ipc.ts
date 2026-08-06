@@ -9,6 +9,8 @@ import {
   type ScanLibraryResult,
 } from '../shared/contracts';
 import type { AppDatabase } from './database';
+import type { ThumbnailCache } from './thumbnail-cache';
+import { getLibraryVideoPage } from './video-library';
 import { scanVideoDirectory } from './video-scanner';
 
 function isDirectoryAvailable(directoryPath: string | null): boolean {
@@ -36,8 +38,15 @@ function buildBootstrapState(database: AppDatabase): BootstrapState {
   };
 }
 
-export function registerIpcHandlers(database: AppDatabase): () => void {
+export function registerIpcHandlers(
+  database: AppDatabase,
+  thumbnailCache: ThumbnailCache,
+): () => void {
   ipcMain.handle(IPC_CHANNELS.getBootstrapState, () => buildBootstrapState(database));
+
+  ipcMain.handle(IPC_CHANNELS.getLibraryVideoPage, (_event, pageIndex: unknown) =>
+    getLibraryVideoPage(database, thumbnailCache, pageIndex as number),
+  );
 
   ipcMain.handle(IPC_CHANNELS.chooseLibraryRoot, async (): Promise<ChooseLibraryRootResult> => {
     const currentRoot = database.getLibraryRoot();
@@ -84,6 +93,7 @@ export function registerIpcHandlers(database: AppDatabase): () => void {
   return () => {
     ipcMain.removeHandler(IPC_CHANNELS.getBootstrapState);
     ipcMain.removeHandler(IPC_CHANNELS.chooseLibraryRoot);
+    ipcMain.removeHandler(IPC_CHANNELS.getLibraryVideoPage);
     ipcMain.removeHandler(IPC_CHANNELS.scanLibrary);
   };
 }

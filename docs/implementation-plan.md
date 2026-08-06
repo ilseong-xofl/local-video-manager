@@ -64,7 +64,22 @@
 
 주의: Auth 전의 `library_id` 분리는 악의적인 요청을 막지 못한다. 이 단계의 서버는 내부 검증 환경으로만 운영한다.
 
-## 4. Windows 배포
+## 4. 로컬 DB 백업·복원
+
+- SQLite online backup으로 실행 중에도 일관된 백업 파일 생성
+- schema version과 app version을 포함한 backup manifest
+- 복원 전 백업 파일 무결성·schema 호환성 검사
+- 복원 후 새 컴퓨터의 영상 root 재지정과 hash 기반 재연결
+- DB 교체 전 현재 DB 자동 보존
+
+검증:
+
+- WAL에 미반영된 변경까지 하나의 백업 파일에 포함된다.
+- 손상되었거나 호환되지 않는 백업은 현재 DB를 변경하지 않는다.
+- 영상 root와 파일명이 달라져도 내용이 같은 영상은 기존 metadata에 다시 연결된다.
+- 재인코딩되어 hash가 달라진 영상은 새 영상으로 판정된다.
+
+## 5. Windows 배포
 
 - Windows x64 installer
 - 자동 업데이트 feed

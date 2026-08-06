@@ -1,6 +1,7 @@
 export const IPC_CHANNELS = {
   getBootstrapState: 'app:get-bootstrap-state',
   chooseLibraryRoot: 'library:choose-root',
+  getLibraryVideoPage: 'library:get-video-page',
   scanLibrary: 'library:scan',
 } as const;
 
@@ -16,6 +17,26 @@ export interface VideoScanSummary extends LibraryStats {
   hashedFileCount: number;
   removedFileCount: number;
   reusedHashCount: number;
+}
+
+export interface LibraryVideo {
+  contentHash: string;
+  fileName: string;
+  relativePath: string;
+  sizeBytes: number;
+}
+
+export interface LibraryVideoItem extends LibraryVideo {
+  fileAvailable: boolean;
+  thumbnailDataUrl: string | null;
+}
+
+export interface LibraryVideoPage {
+  items: LibraryVideoItem[];
+  pageIndex: number;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
 }
 
 export interface BootstrapState {
@@ -40,5 +61,6 @@ export interface ScanLibraryResult {
 export interface LocalVideoManagerApi {
   getBootstrapState(): Promise<BootstrapState>;
   chooseLibraryRoot(): Promise<ChooseLibraryRootResult>;
+  getLibraryVideoPage(pageIndex: number): Promise<LibraryVideoPage>;
   scanLibrary(): Promise<ScanLibraryResult>;
 }

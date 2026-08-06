@@ -1,9 +1,17 @@
 import { useEffect, useState } from 'react';
 
-import type { BootstrapState, VideoScanSummary } from '../shared/contracts';
+import type { BootstrapState, LibraryVideoPage, VideoScanSummary } from '../shared/contracts';
 
 function formatScanTime(value: string | null): string {
   return value ? new Date(value).toLocaleString('ko-KR') : '아직 불러오지 않았습니다.';
+}
+
+function formatFileSize(sizeBytes: number): string {
+  if (sizeBytes < 1024 * 1024) {
+    return `${Math.max(1, Math.round(sizeBytes / 1024))}KB`;
+  }
+
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
 export function App() {
@@ -12,13 +20,33 @@ export function App() {
   const [choosingFolder, setChoosingFolder] = useState(false);
   const [scanningFolder, setScanningFolder] = useState(false);
   const [scanSummary, setScanSummary] = useState<VideoScanSummary | null>(null);
+  const [videoPage, setVideoPage] = useState<LibraryVideoPage | null>(null);
+  const [loadingVideos, setLoadingVideos] = useState(false);
 
   useEffect(() => {
     void window.localVideoManager
       .getBootstrapState()
-      .then(setState)
+      .then((bootstrapState) => {
+        setState(bootstrapState);
+        if (bootstrapState.libraryStats.uniqueVideoCount > 0) {
+          void loadVideoPage(0);
+        }
+      })
       .catch(() => setError('앱 초기 정보를 불러오지 못했습니다.'));
   }, []);
+
+  async function loadVideoPage(pageIndex: number) {
+    setLoadingVideos(true);
+    setError(null);
+
+    try {
+      setVideoPage(await window.localVideoManager.getLibraryVideoPage(pageIndex));
+    } catch {
+      setError('영상 목록과 썸네일을 불러오지 못했습니다.');
+    } finally {
+      setLoadingVideos(false);
+    }
+  }
 
   async function chooseFolder() {
     setChoosingFolder(true);
@@ -26,9 +54,13 @@ export function App() {
 
     try {
       const result = await window.localVideoManager.chooseLibraryRoot();
+      const folderChanged = result.state.libraryRoot !== state?.libraryRoot;
       setState(result.state);
       if (!result.cancelled) {
         setScanSummary(null);
+        if (folderChanged) {
+          setVideoPage(null);
+        }
       }
     } catch {
       setError('영상 폴더를 저장하지 못했습니다.');
@@ -45,6 +77,7 @@ export function App() {
       const result = await window.localVideoManager.scanLibrary();
       setState(result.state);
       setScanSummary(result.summary);
+      await loadVideoPage(0);
     } catch {
       setError('영상 폴더를 불러오지 못했습니다. 폴더 접근 권한과 파일 상태를 확인하세요.');
     } finally {
@@ -133,6 +166,87 @@ export function App() {
           </p>
         ) : null}
       </section>
+
+      {state?.libraryStats.lastScannedAt ? (
+        <section className="library-section" aria-labelledby="video-library-heading">
+          <div className="library-section-heading">
+            <div>
+              <p className="eyebrow">VIDEO LIBRARY</p>
+              <h2 id="video-library-heading">영상 목록</h2>
+            </div>
+            <span className="library-count">
+              {videoPage?.totalItems ?? state.libraryStats.uniqueVideoCount}개 고유 영상
+            </span>
+          </div>
+
+          {loadingVideos && !videoPage ? <p className="library-message">썸네일 생성 중…</p> : null}
+
+          {!loadingVideos && videoPage?.items.length === 0 ? (
+            <p className="library-message">선택한 폴더에서 지원하는 영상 파일을 찾지 못했습니다.</p>
+          ) : null}
+
+          {videoPage?.items.length ? (
+            <div className={loadingVideos ? 'video-grid video-grid-loading' : 'video-grid'}>
+              {videoPage.items.map((video) => (
+                <article className="video-card" key={video.contentHash}>
+                  <div className="thumbnail-frame">
+                    {video.thumbnailDataUrl ? (
+                      <img
+                        src={video.thumbnailDataUrl}
+                        alt={`${video.fileName} 썸네일`}
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="thumbnail-placeholder" aria-label="썸네일 없음">
+                        <span>미리보기 없음</span>
+                      </div>
+                    )}
+                    <span className={video.fileAvailable ? 'file-status available' : 'file-status'}>
+                      {video.fileAvailable ? '파일 확인됨' : '파일 없음'}
+                    </span>
+                  </div>
+                  <div className="video-card-copy">
+                    <strong className="video-file-name" title={video.fileName}>
+                      {video.fileName}
+                    </strong>
+                    <span className="video-relative-path" title={video.relativePath}>
+                      {video.relativePath}
+                    </span>
+                    <div className="video-meta">
+                      <span>{formatFileSize(video.sizeBytes)}</span>
+                      <span title={video.contentHash}>
+                        SHA-256 {video.contentHash.slice(0, 10)}…
+                      </span>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : null}
+
+          {videoPage && videoPage.totalPages > 1 ? (
+            <nav className="pagination" aria-label="영상 목록 페이지">
+              <button
+                className="secondary-button"
+                onClick={() => loadVideoPage(videoPage.pageIndex - 1)}
+                disabled={loadingVideos || videoPage.pageIndex === 0}
+              >
+                이전
+              </button>
+              <span>
+                {videoPage.pageIndex + 1} / {videoPage.totalPages}
+              </span>
+              <button
+                className="secondary-button"
+                onClick={() => loadVideoPage(videoPage.pageIndex + 1)}
+                disabled={loadingVideos || videoPage.pageIndex + 1 >= videoPage.totalPages}
+              >
+                다음
+              </button>
+            </nav>
+          ) : null}
+        </section>
+      ) : null}
     </main>
   );
 }

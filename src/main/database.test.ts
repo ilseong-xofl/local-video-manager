@@ -108,4 +108,45 @@ describe('AppDatabase', () => {
     expect(database.getVideoFileCache()).toEqual([]);
     database.close();
   });
+
+  it('returns one deterministic file location per unique video with pagination', () => {
+    const database = new AppDatabase(createDatabasePath());
+    const firstHash = 'a'.repeat(64);
+    const secondHash = 'b'.repeat(64);
+    const thirdHash = 'c'.repeat(64);
+    database.setLibraryRoot('/videos');
+    database.syncVideoFiles(
+      [
+        scannedVideo('first.mp4', firstHash),
+        scannedVideo('nested/duplicate.mp4', firstHash),
+        scannedVideo('middle.mov', secondHash),
+        scannedVideo('z-last.webm', thirdHash),
+      ],
+      { hashedFileCount: 4, reusedHashCount: 0 },
+    );
+
+    expect(database.getLibraryVideos(2, 0)).toEqual([
+      {
+        contentHash: firstHash,
+        fileName: 'first.mp4',
+        relativePath: 'first.mp4',
+        sizeBytes: 10,
+      },
+      {
+        contentHash: secondHash,
+        fileName: 'middle.mov',
+        relativePath: 'middle.mov',
+        sizeBytes: 10,
+      },
+    ]);
+    expect(database.getLibraryVideos(2, 2)).toEqual([
+      {
+        contentHash: thirdHash,
+        fileName: 'z-last.webm',
+        relativePath: 'z-last.webm',
+        sizeBytes: 10,
+      },
+    ]);
+    database.close();
+  });
 });
