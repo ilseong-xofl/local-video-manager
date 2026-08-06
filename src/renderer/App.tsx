@@ -104,6 +104,24 @@ function formatVideoDate(value: number | string): string {
   return new Date(value).toLocaleDateString('ko-KR');
 }
 
+function getFolderName(folderPath: string | null): string {
+  return folderPath?.split(/[\\/]/).filter(Boolean).at(-1) ?? '영상 폴더';
+}
+
+function BrandIcon() {
+  return (
+    <svg className="brand-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="3" y="4" width="18" height="16" rx="4" stroke="currentColor" strokeWidth="1.8" />
+      <path
+        d="M8 4v16M16 4v16M3 9h5M16 9h5M3 15h5M16 15h5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+      <path d="m11 9.5 4 2.5-4 2.5v-5Z" fill="currentColor" />
+    </svg>
+  );
+}
+
 export function App() {
   const [state, setState] = useState<BootstrapState | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -114,6 +132,9 @@ export function App() {
   const [databaseMessage, setDatabaseMessage] = useState<string | null>(null);
   const [databaseError, setDatabaseError] = useState<string | null>(null);
   const [scanSummary, setScanSummary] = useState<VideoScanSummary | null>(null);
+  const [scanCompletedOpen, setScanCompletedOpen] = useState(false);
+  const [showLibrary, setShowLibrary] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [videoPage, setVideoPage] = useState<LibraryVideoPage | null>(null);
   const [loadingVideos, setLoadingVideos] = useState(false);
   const [defaultLibraryFilters] = useState(createDefaultLibraryFilters);
@@ -154,6 +175,7 @@ export function App() {
   const [metadataSearchError, setMetadataSearchError] = useState<string | null>(null);
   const [copiedFromVideo, setCopiedFromVideo] = useState<VideoMetadataSearchResult | null>(null);
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
+  const settingsMenuRef = useRef<HTMLDivElement | null>(null);
   const databaseBusy = backingUpDatabase || restoringDatabase;
 
   useEffect(() => {
@@ -161,7 +183,9 @@ export function App() {
       .getBootstrapState()
       .then((bootstrapState) => {
         setState(bootstrapState);
-        if (bootstrapState.libraryStats.lastScannedAt) {
+        const hasScannedLibrary = Boolean(bootstrapState.libraryStats.lastScannedAt);
+        setShowLibrary(hasScannedLibrary);
+        if (hasScannedLibrary) {
           void loadVideoPage(0, appliedLibraryQuery);
         }
       })
@@ -169,7 +193,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!playingVideo && !editingVideo) {
+    if (!playingVideo && !editingVideo && !scanningFolder && !scanCompletedOpen) {
       return;
     }
 
@@ -180,7 +204,7 @@ export function App() {
           closePlayer();
         } else if (metadataSearchOpen) {
           setMetadataSearchOpen(false);
-        } else {
+        } else if (editingVideo) {
           closeMetadataEditor();
         }
       }
@@ -193,7 +217,31 @@ export function App() {
       document.body.style.overflow = previousOverflow;
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [editingVideo, metadataSearchOpen, playingVideo]);
+  }, [editingVideo, metadataSearchOpen, playingVideo, scanCompletedOpen, scanningFolder]);
+
+  useEffect(() => {
+    if (!settingsOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!settingsMenuRef.current?.contains(event.target as Node)) {
+        setSettingsOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setSettingsOpen(false);
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [settingsOpen]);
 
   async function loadVideoPage(pageIndex: number, query = appliedLibraryQuery) {
     setLoadingVideos(true);
@@ -209,6 +257,7 @@ export function App() {
   }
 
   async function chooseFolder() {
+    setSettingsOpen(false);
     setChoosingFolder(true);
     setError(null);
 
@@ -218,9 +267,12 @@ export function App() {
       setState(result.state);
       if (!result.cancelled) {
         setScanSummary(null);
+        setScanCompletedOpen(false);
         if (folderChanged) {
           setVideoPage(null);
-          if (result.state.libraryStats.lastScannedAt) {
+          const hasScannedLibrary = Boolean(result.state.libraryStats.lastScannedAt);
+          setShowLibrary(hasScannedLibrary);
+          if (hasScannedLibrary) {
             await loadVideoPage(0);
           }
         }
@@ -233,14 +285,17 @@ export function App() {
   }
 
   async function scanFolder() {
+    setSettingsOpen(false);
     setScanningFolder(true);
     setError(null);
+    setScanSummary(null);
 
     try {
       const result = await window.localVideoManager.scanLibrary();
       setState(result.state);
       setScanSummary(result.summary);
       await loadVideoPage(0);
+      setScanCompletedOpen(true);
     } catch {
       setError('영상 폴더를 불러오지 못했습니다. 폴더 접근 권한과 파일 상태를 확인하세요.');
     } finally {
@@ -249,6 +304,7 @@ export function App() {
   }
 
   async function createDatabaseBackup() {
+    setSettingsOpen(false);
     setBackingUpDatabase(true);
     setDatabaseMessage(null);
     setDatabaseError(null);
@@ -266,6 +322,7 @@ export function App() {
   }
 
   async function restoreDatabaseBackup() {
+    setSettingsOpen(false);
     setRestoringDatabase(true);
     setDatabaseMessage(null);
     setDatabaseError(null);
@@ -447,303 +504,741 @@ export function App() {
     }
   }
 
-  return (
-    <main className="app-shell">
-      <header className="app-header">
-        <div>
-          <p className="eyebrow">LOCAL VIDEO MANAGER</p>
-          <h1>내 영상 라이브러리</h1>
-          <p className="subtitle">각 멤버의 로컬 폴더를 안전하게 정리하는 데스크톱 앱</p>
-        </div>
-        <span className="version">v{state?.appVersion ?? '0.1.0'}</span>
-      </header>
-
-      <section className="setup-card" aria-labelledby="library-heading">
-        <div className="setup-copy">
-          <span className="step-badge">첫 단계</span>
-          <h2 id="library-heading">관리할 영상 폴더를 선택하세요</h2>
-          <p>영상 원본은 이 컴퓨터에 그대로 유지됩니다. 앱은 선택한 폴더의 파일만 읽습니다.</p>
-        </div>
-        <button
-          className="primary-button"
-          onClick={chooseFolder}
-          disabled={choosingFolder || scanningFolder || databaseBusy}
-        >
-          {choosingFolder ? '선택 중…' : state?.libraryRoot ? '폴더 변경' : '영상 폴더 선택'}
-        </button>
-      </section>
-
-      {error ? <p className="error-message">{error}</p> : null}
-
-      <section className="status-grid" aria-label="라이브러리 상태">
-        <article className="status-card status-card-wide">
-          <span className="status-label">선택된 폴더</span>
-          <strong className="path-value">
-            {state?.libraryRoot ?? '아직 선택되지 않았습니다.'}
-          </strong>
-          <span className={state?.libraryRootAvailable ? 'status-ok' : 'status-muted'}>
-            {state?.libraryRootAvailable ? '폴더 접근 가능' : '폴더 선택 필요'}
+  if (!state) {
+    return (
+      <main className="app-shell app-shell-loading">
+        <section className="launch-state" role={error ? 'alert' : 'status'}>
+          <span className="launch-brand-mark">
+            <BrandIcon />
           </span>
-          <span className="status-muted">
-            {state
-              ? `${state.libraryStats.fileCount}개 파일 · ${state.libraryStats.uniqueVideoCount}개 고유 영상`
-              : '영상 수 확인 중…'}
-          </span>
-        </article>
-        <article className="status-card">
-          <span className="status-label">라이브러리 ID</span>
-          <strong className="id-value">{state?.libraryId ?? '생성 중…'}</strong>
-          <span className="status-muted">이 설치 환경의 논리 식별자</span>
-        </article>
-        <article className="status-card">
-          <span className="status-label">실행 환경</span>
-          <strong>{state?.platform ?? '확인 중…'}</strong>
-          <span className="status-muted">Mac 개발 · Windows 배포</span>
-        </article>
-      </section>
-
-      <section className="database-tools" aria-labelledby="database-tools-heading">
-        <div className="database-tools-copy">
-          <strong id="database-tools-heading">DB 백업 및 복원</strong>
+          {error ? (
+            <span className="launch-error-mark">!</span>
+          ) : (
+            <span className="loading-spinner" />
+          )}
+          <strong>{error ?? '라이브러리를 준비하고 있습니다'}</strong>
           <p>
-            폴더 설정, 영상 식별 정보, URL, 캡션과 변경 이력을 백업합니다. 영상 원본 파일은 포함되지
-            않습니다.
+            {error
+              ? '앱을 다시 실행해 주세요.'
+              : '저장된 설정과 영상 정보를 안전하게 불러오는 중입니다.'}
           </p>
-        </div>
-        <div className="database-tools-actions">
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={() => void createDatabaseBackup()}
-            disabled={databaseBusy || choosingFolder || scanningFolder}
-          >
-            {backingUpDatabase ? '백업 중…' : 'DB 백업'}
-          </button>
-          <button
-            className="secondary-button database-restore-button"
-            type="button"
-            onClick={() => void restoreDatabaseBackup()}
-            disabled={databaseBusy || choosingFolder || scanningFolder}
-          >
-            {restoringDatabase ? '복원 준비 중…' : 'DB 복원'}
-          </button>
-        </div>
-        {databaseMessage ? (
-          <p className="database-tools-message" role="status">
-            {databaseMessage}
-          </p>
-        ) : null}
-        {databaseError ? (
-          <p className="database-tools-error" role="alert">
-            {databaseError}
-          </p>
-        ) : null}
-      </section>
-
-      <section className="next-section">
-        <div className="next-section-row">
-          <div className="next-section-heading">
-            <span className="status-dot" />
-            <strong>선택 폴더 영상 불러오기</strong>
-          </div>
-          <button
-            className="primary-button"
-            onClick={scanFolder}
-            disabled={
-              !state?.libraryRootAvailable || scanningFolder || choosingFolder || databaseBusy
-            }
-          >
-            {scanningFolder ? '불러오는 중…' : '영상 불러오기'}
-          </button>
-        </div>
-        <p>
-          선택 폴더를 포함해 최대 3단계까지 탐색하고 영상 파일을 SHA-256으로 식별합니다. 마지막
-          불러오기: {formatScanTime(state?.libraryStats.lastScannedAt ?? null)}
-        </p>
-        {scanSummary ? (
-          <p className="scan-result" role="status">
-            총 {scanSummary.fileCount}개 파일 · 고유 영상 {scanSummary.uniqueVideoCount}개 · 새 영상{' '}
-            {scanSummary.addedVideoCount}개 · 중복 파일 {scanSummary.duplicateFileCount}개 · 제거된
-            파일 {scanSummary.removedFileCount}개 · 깊이 초과 폴더{' '}
-            {scanSummary.excludedDirectoryCount}개 · 해시 재사용 {scanSummary.reusedHashCount}개
-          </p>
-        ) : null}
-      </section>
-
-      {state?.libraryStats.lastScannedAt ? (
-        <section className="library-section" aria-labelledby="video-library-heading">
-          <div className="library-section-heading">
-            <div>
-              <p className="eyebrow">VIDEO LIBRARY</p>
-              <h2 id="video-library-heading">영상 목록</h2>
-            </div>
-            <span className="library-count">{videoPage?.totalItems ?? 0}개 조회 결과</span>
-          </div>
-
-          <form className="library-filters" onSubmit={(event) => void applyLibraryFilters(event)}>
-            <label className="library-filter-field">
-              <span>정렬</span>
-              <select
-                value={librarySortOption}
-                onChange={(event) => {
-                  setLibrarySortOption(event.target.value as LibrarySortOption);
-                  setLibraryFilterError(null);
-                }}
-                disabled={loadingVideos}
-              >
-                <option value="registeredAt-desc">등록일 · 내림차순 (최신순)</option>
-                <option value="registeredAt-asc">등록일 · 오름차순 (오래된순)</option>
-                <option value="modifiedAt-desc">수정일 · 내림차순 (최신순)</option>
-                <option value="modifiedAt-asc">수정일 · 오름차순 (오래된순)</option>
-              </select>
-            </label>
-            <label className="library-filter-field library-filter-search">
-              <span>제목 검색</span>
-              <input
-                type="search"
-                value={librarySearchQuery}
-                onChange={(event) => {
-                  setLibrarySearchQuery(event.target.value);
-                  setLibraryFilterError(null);
-                }}
-                placeholder="파일명 일부를 입력하세요"
-                maxLength={VIDEO_LIBRARY_SEARCH_MAX_LENGTH}
-                disabled={loadingVideos}
-              />
-            </label>
-            <label className="library-filter-field">
-              <span>{librarySortOption.startsWith('registeredAt') ? '등록일' : '수정일'} 시작</span>
-              <input
-                type="date"
-                value={libraryDateFrom}
-                max={libraryDateTo}
-                onChange={(event) => {
-                  setLibraryDateFrom(event.target.value);
-                  setLibraryFilterError(null);
-                }}
-                disabled={loadingVideos}
-                required
-              />
-            </label>
-            <label className="library-filter-field">
-              <span>{librarySortOption.startsWith('registeredAt') ? '등록일' : '수정일'} 종료</span>
-              <input
-                type="date"
-                value={libraryDateTo}
-                min={libraryDateFrom}
-                onChange={(event) => {
-                  setLibraryDateTo(event.target.value);
-                  setLibraryFilterError(null);
-                }}
-                disabled={loadingVideos}
-                required
-              />
-            </label>
-            <button
-              className="primary-button library-filter-submit"
-              type="submit"
-              disabled={loadingVideos}
-            >
-              {loadingVideos ? '조회 중…' : '조회'}
-            </button>
-            {libraryFilterError ? (
-              <p className="library-filter-error" role="alert">
-                {libraryFilterError}
-              </p>
-            ) : null}
-          </form>
-
-          {loadingVideos && !videoPage ? <p className="library-message">썸네일 생성 중…</p> : null}
-
-          {!loadingVideos && videoPage?.items.length === 0 ? (
-            <p className="library-message">조회 조건에 맞는 영상을 찾지 못했습니다.</p>
-          ) : null}
-
-          {videoPage?.items.length ? (
-            <div className={loadingVideos ? 'video-grid video-grid-loading' : 'video-grid'}>
-              {videoPage.items.map((video) => (
-                <article className="video-card" key={video.contentHash}>
-                  <button
-                    className="thumbnail-frame thumbnail-button"
-                    type="button"
-                    onClick={() => openPlayer(video)}
-                    disabled={!video.playbackUrl}
-                    aria-label={`${video.fileName} 재생`}
-                  >
-                    {video.thumbnailDataUrl ? (
-                      <img
-                        src={video.thumbnailDataUrl}
-                        alt={`${video.fileName} 썸네일`}
-                        loading="lazy"
-                      />
-                    ) : (
-                      <div className="thumbnail-placeholder" aria-label="썸네일 없음">
-                        <span>미리보기 없음</span>
-                      </div>
-                    )}
-                    {video.playbackUrl ? (
-                      <span className="play-indicator" aria-hidden="true" />
-                    ) : null}
-                    <span className={video.fileAvailable ? 'file-status available' : 'file-status'}>
-                      {video.fileAvailable ? '파일 확인됨' : '파일 없음'}
-                    </span>
-                  </button>
-                  <div className="video-card-copy">
-                    <strong className="video-file-name" title={video.fileName}>
-                      {video.fileName}
-                    </strong>
-                    <span className="video-relative-path" title={video.relativePath}>
-                      {video.relativePath}
-                    </span>
-                    <div className="video-meta">
-                      <span>{formatFileSize(video.sizeBytes)}</span>
-                      <span title={video.contentHash}>
-                        SHA-256 {video.contentHash.slice(0, 10)}…
-                      </span>
-                    </div>
-                    <div className="video-dates">
-                      <span>등록 {formatVideoDate(video.registeredAt)}</span>
-                      <span>수정 {formatVideoDate(video.modifiedAtMs)}</span>
-                    </div>
-                    <button
-                      className={
-                        video.metadataRegistered
-                          ? 'metadata-button metadata-button-registered'
-                          : 'metadata-button'
-                      }
-                      type="button"
-                      onClick={() => void openMetadataEditor(video)}
-                    >
-                      {video.metadataRegistered ? '정보 수정' : '정보 등록'}
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          ) : null}
-
-          {videoPage && videoPage.totalPages > 1 ? (
-            <nav className="pagination" aria-label="영상 목록 페이지">
-              <button
-                className="secondary-button"
-                onClick={() => loadVideoPage(videoPage.pageIndex - 1)}
-                disabled={loadingVideos || videoPage.pageIndex === 0}
-              >
-                이전
-              </button>
-              <span>
-                {videoPage.pageIndex + 1} / {videoPage.totalPages}
-              </span>
-              <button
-                className="secondary-button"
-                onClick={() => loadVideoPage(videoPage.pageIndex + 1)}
-                disabled={loadingVideos || videoPage.pageIndex + 1 >= videoPage.totalPages}
-              >
-                다음
-              </button>
-            </nav>
-          ) : null}
         </section>
+      </main>
+    );
+  }
+
+  const libraryVisible = showLibrary && Boolean(state.libraryStats.lastScannedAt);
+  const activeFolderName = getFolderName(state.libraryRoot);
+
+  return (
+    <main
+      className={libraryVisible ? 'app-shell app-shell-library' : 'app-shell app-shell-onboarding'}
+    >
+      {libraryVisible ? (
+        <>
+          <header className="library-topbar">
+            <div className="library-topbar-inner">
+              <div className="app-brand">
+                <span className="app-brand-mark">
+                  <BrandIcon />
+                </span>
+                <div className="app-brand-copy">
+                  <strong>Local Video Manager</strong>
+                  <span title={state.libraryRoot ?? undefined}>{activeFolderName}</span>
+                </div>
+              </div>
+
+              <div className="library-toolbar">
+                <div className="library-total" aria-label="현재 라이브러리 영상 수">
+                  <strong>{state.libraryStats.uniqueVideoCount.toLocaleString()}</strong>
+                  <span>videos</span>
+                </div>
+                <button
+                  className="toolbar-icon-button"
+                  type="button"
+                  onClick={() => void scanFolder()}
+                  disabled={
+                    scanningFolder || choosingFolder || databaseBusy || !state.libraryRootAvailable
+                  }
+                  aria-label="영상 다시 불러오기"
+                  title="영상 다시 불러오기"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path
+                      d="M20 7v5h-5M4 17v-5h5"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    <path
+                      d="M6.1 8.2A7 7 0 0 1 18.8 7M17.9 15.8A7 7 0 0 1 5.2 17"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
+                <div className="settings-menu-wrap" ref={settingsMenuRef}>
+                  <button
+                    className={
+                      settingsOpen
+                        ? 'toolbar-icon-button toolbar-icon-button-active'
+                        : 'toolbar-icon-button'
+                    }
+                    type="button"
+                    onClick={() => setSettingsOpen((open) => !open)}
+                    disabled={scanningFolder || choosingFolder || databaseBusy}
+                    aria-label="설정 메뉴"
+                    aria-haspopup="menu"
+                    aria-expanded={settingsOpen}
+                    title="설정"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path
+                        d="M9.7 3.4h4.6l.5 2a7.7 7.7 0 0 1 1.5.9l2-.6 2.3 4-1.5 1.4a8 8 0 0 1 0 1.8l1.5 1.4-2.3 4-2-.6a7.7 7.7 0 0 1-1.5.9l-.5 2H9.7l-.5-2a7.7 7.7 0 0 1-1.5-.9l-2 .6-2.3-4 1.5-1.4a8 8 0 0 1 0-1.8L3.4 9.7l2.3-4 2 .6a7.7 7.7 0 0 1 1.5-.9l.5-2Z"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinejoin="round"
+                      />
+                      <circle cx="12" cy="12" r="2.7" stroke="currentColor" strokeWidth="1.6" />
+                    </svg>
+                  </button>
+
+                  {settingsOpen ? (
+                    <div className="settings-menu" role="menu" aria-label="라이브러리 설정">
+                      <div className="settings-menu-header">
+                        <span>현재 라이브러리</span>
+                        <strong title={state.libraryRoot ?? undefined}>{activeFolderName}</strong>
+                        <small>{formatScanTime(state.libraryStats.lastScannedAt)}</small>
+                      </div>
+                      <button type="button" role="menuitem" onClick={() => void chooseFolder()}>
+                        <span className="settings-item-icon">
+                          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path
+                              d="M3.5 7.5h6l1.7 2h9.3v8.8a2.2 2.2 0 0 1-2.2 2.2H5.7a2.2 2.2 0 0 1-2.2-2.2V7.5Z"
+                              stroke="currentColor"
+                              strokeWidth="1.7"
+                              strokeLinejoin="round"
+                            />
+                            <path
+                              d="M3.5 8V5.7a2.2 2.2 0 0 1 2.2-2.2h4.2l1.8 2h6.6a2.2 2.2 0 0 1 2.2 2.2v1.8"
+                              stroke="currentColor"
+                              strokeWidth="1.7"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </span>
+                        <span>
+                          <strong>영상 폴더 변경</strong>
+                          <small>관리할 로컬 폴더 선택</small>
+                        </span>
+                      </button>
+                      <div className="settings-menu-divider" />
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => void createDatabaseBackup()}
+                      >
+                        <span className="settings-item-icon">
+                          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path
+                              d="M12 3v12M7.5 10.5 12 15l4.5-4.5M4 14.5v4A2.5 2.5 0 0 0 6.5 21h11a2.5 2.5 0 0 0 2.5-2.5v-4"
+                              stroke="currentColor"
+                              strokeWidth="1.8"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </span>
+                        <span>
+                          <strong>{backingUpDatabase ? '백업 중…' : 'DB 백업'}</strong>
+                          <small>영상 정보와 설정 저장</small>
+                        </span>
+                      </button>
+                      <button
+                        className="settings-danger-item"
+                        type="button"
+                        role="menuitem"
+                        onClick={() => void restoreDatabaseBackup()}
+                      >
+                        <span className="settings-item-icon">
+                          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path
+                              d="M12 21V9M7.5 13.5 12 9l4.5 4.5M4 9.5v-4A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v4"
+                              stroke="currentColor"
+                              strokeWidth="1.8"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </span>
+                        <span>
+                          <strong>{restoringDatabase ? '복원 준비 중…' : 'DB 복원'}</strong>
+                          <small>저장된 백업 불러오기</small>
+                        </span>
+                      </button>
+                      <div className="settings-menu-footer">
+                        Local Video Manager v{state.appVersion}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          </header>
+
+          <div className="library-content">
+            {error || databaseMessage || databaseError ? (
+              <div
+                className={error || databaseError ? 'app-notice app-notice-error' : 'app-notice'}
+                role={error || databaseError ? 'alert' : 'status'}
+              >
+                <span>{error ?? databaseError ?? databaseMessage}</span>
+                <button
+                  type="button"
+                  aria-label="알림 닫기"
+                  onClick={() => {
+                    setError(null);
+                    setDatabaseMessage(null);
+                    setDatabaseError(null);
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            ) : null}
+
+            <section className="library-section" aria-labelledby="video-library-heading">
+              <div className="library-section-heading">
+                <div className="library-heading-copy">
+                  <p className="eyebrow">MY VIDEO LIBRARY</p>
+                  <h1 id="video-library-heading">영상 라이브러리</h1>
+                  <p>
+                    <strong>{activeFolderName}</strong> 폴더에서 관리 중인 영상을 확인하세요.
+                  </p>
+                </div>
+                <span className="library-count">
+                  <strong>{videoPage?.totalItems ?? 0}</strong>개 조회 결과
+                </span>
+              </div>
+
+              <form
+                className="library-filters"
+                onSubmit={(event) => void applyLibraryFilters(event)}
+              >
+                <div className="library-filters-heading">
+                  <span className="filter-heading-icon">
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" strokeWidth="1.8" />
+                      <path
+                        d="m15.5 15.5 4.5 4.5"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </span>
+                  <span>
+                    <strong>검색 및 필터</strong>
+                    <small>파일명과 날짜 조건으로 원하는 영상을 찾습니다.</small>
+                  </span>
+                </div>
+                <label className="library-filter-field library-filter-search">
+                  <span>제목 검색</span>
+                  <input
+                    type="search"
+                    value={librarySearchQuery}
+                    onChange={(event) => {
+                      setLibrarySearchQuery(event.target.value);
+                      setLibraryFilterError(null);
+                    }}
+                    placeholder="파일명 일부를 입력하세요"
+                    maxLength={VIDEO_LIBRARY_SEARCH_MAX_LENGTH}
+                    disabled={loadingVideos}
+                  />
+                </label>
+                <label className="library-filter-field library-filter-sort">
+                  <span>정렬</span>
+                  <select
+                    value={librarySortOption}
+                    onChange={(event) => {
+                      setLibrarySortOption(event.target.value as LibrarySortOption);
+                      setLibraryFilterError(null);
+                    }}
+                    disabled={loadingVideos}
+                  >
+                    <option value="registeredAt-desc">등록일 · 내림차순 (최신순)</option>
+                    <option value="registeredAt-asc">등록일 · 오름차순 (오래된순)</option>
+                    <option value="modifiedAt-desc">수정일 · 내림차순 (최신순)</option>
+                    <option value="modifiedAt-asc">수정일 · 오름차순 (오래된순)</option>
+                  </select>
+                </label>
+                <label className="library-filter-field">
+                  <span>
+                    {librarySortOption.startsWith('registeredAt') ? '등록일' : '수정일'} 시작
+                  </span>
+                  <input
+                    type="date"
+                    value={libraryDateFrom}
+                    max={libraryDateTo}
+                    onChange={(event) => {
+                      setLibraryDateFrom(event.target.value);
+                      setLibraryFilterError(null);
+                    }}
+                    disabled={loadingVideos}
+                    required
+                  />
+                </label>
+                <label className="library-filter-field">
+                  <span>
+                    {librarySortOption.startsWith('registeredAt') ? '등록일' : '수정일'} 종료
+                  </span>
+                  <input
+                    type="date"
+                    value={libraryDateTo}
+                    min={libraryDateFrom}
+                    onChange={(event) => {
+                      setLibraryDateTo(event.target.value);
+                      setLibraryFilterError(null);
+                    }}
+                    disabled={loadingVideos}
+                    required
+                  />
+                </label>
+                <button
+                  className="primary-button library-filter-submit"
+                  type="submit"
+                  disabled={loadingVideos}
+                >
+                  {loadingVideos ? <span className="button-spinner" /> : null}
+                  {loadingVideos ? '조회 중…' : '조회'}
+                </button>
+                {libraryFilterError ? (
+                  <p className="library-filter-error" role="alert">
+                    {libraryFilterError}
+                  </p>
+                ) : null}
+              </form>
+
+              {loadingVideos && !videoPage ? (
+                <p className="library-message">썸네일 생성 중…</p>
+              ) : null}
+
+              {!loadingVideos && videoPage?.items.length === 0 ? (
+                <p className="library-message">조회 조건에 맞는 영상을 찾지 못했습니다.</p>
+              ) : null}
+
+              {videoPage?.items.length ? (
+                <div className={loadingVideos ? 'video-grid video-grid-loading' : 'video-grid'}>
+                  {videoPage.items.map((video) => (
+                    <article className="video-card" key={video.contentHash}>
+                      <button
+                        className="thumbnail-frame thumbnail-button"
+                        type="button"
+                        onClick={() => openPlayer(video)}
+                        disabled={!video.playbackUrl}
+                        aria-label={`${video.fileName} 재생`}
+                      >
+                        {video.thumbnailDataUrl ? (
+                          <img
+                            src={video.thumbnailDataUrl}
+                            alt={`${video.fileName} 썸네일`}
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className="thumbnail-placeholder" aria-label="썸네일 없음">
+                            <span>미리보기 없음</span>
+                          </div>
+                        )}
+                        {video.playbackUrl ? (
+                          <span className="play-indicator" aria-hidden="true" />
+                        ) : null}
+                        <span
+                          className={video.fileAvailable ? 'file-status available' : 'file-status'}
+                        >
+                          {video.fileAvailable ? '파일 확인됨' : '파일 없음'}
+                        </span>
+                      </button>
+                      <div className="video-card-copy">
+                        <strong className="video-file-name" title={video.fileName}>
+                          {video.fileName}
+                        </strong>
+                        <span className="video-relative-path" title={video.relativePath}>
+                          {video.relativePath}
+                        </span>
+                        <div className="video-meta">
+                          <span>{formatFileSize(video.sizeBytes)}</span>
+                          <span title={video.contentHash}>
+                            SHA-256 {video.contentHash.slice(0, 10)}…
+                          </span>
+                        </div>
+                        <div className="video-dates">
+                          <span>등록 {formatVideoDate(video.registeredAt)}</span>
+                          <span>수정 {formatVideoDate(video.modifiedAtMs)}</span>
+                        </div>
+                        <button
+                          className={
+                            video.metadataRegistered
+                              ? 'metadata-button metadata-button-registered'
+                              : 'metadata-button'
+                          }
+                          type="button"
+                          onClick={() => void openMetadataEditor(video)}
+                        >
+                          {video.metadataRegistered ? '정보 수정' : '정보 등록'}
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
+
+              {videoPage && videoPage.totalPages > 1 ? (
+                <nav className="pagination" aria-label="영상 목록 페이지">
+                  <button
+                    className="secondary-button"
+                    onClick={() => loadVideoPage(videoPage.pageIndex - 1)}
+                    disabled={loadingVideos || videoPage.pageIndex === 0}
+                  >
+                    이전
+                  </button>
+                  <span>
+                    {videoPage.pageIndex + 1} / {videoPage.totalPages}
+                  </span>
+                  <button
+                    className="secondary-button"
+                    onClick={() => loadVideoPage(videoPage.pageIndex + 1)}
+                    disabled={loadingVideos || videoPage.pageIndex + 1 >= videoPage.totalPages}
+                  >
+                    다음
+                  </button>
+                </nav>
+              ) : null}
+            </section>
+          </div>
+        </>
+      ) : (
+        <section className="onboarding-page" aria-labelledby="onboarding-title">
+          <header className="onboarding-header">
+            <div className="app-brand app-brand-on-dark">
+              <span className="app-brand-mark">
+                <BrandIcon />
+              </span>
+              <div className="app-brand-copy">
+                <strong>Local Video Manager</strong>
+                <span>나만의 로컬 영상 라이브러리</span>
+              </div>
+            </div>
+            <span className="onboarding-version">v{state.appVersion}</span>
+          </header>
+
+          <div className="onboarding-layout">
+            <div className="onboarding-intro">
+              <p className="eyebrow">ORGANIZE YOUR VIDEO LIBRARY</p>
+              <h1 id="onboarding-title">
+                흩어진 영상을
+                <br />
+                한곳에서 관리하세요.
+              </h1>
+              <p className="onboarding-description">
+                폴더 하나만 지정하면 영상을 식별하고 썸네일과 정보를 정리해 나만의 로컬 라이브러리를
+                만들어 드립니다.
+              </p>
+              <div className="onboarding-features" aria-label="주요 특징">
+                <div>
+                  <span className="feature-icon">
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path
+                        d="M12 3 5 6v5c0 4.6 2.8 8.1 7 10 4.2-1.9 7-5.4 7-10V6l-7-3Z"
+                        stroke="currentColor"
+                        strokeWidth="1.7"
+                        strokeLinejoin="round"
+                      />
+                      <path
+                        d="m9 12 2 2 4-4"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </span>
+                  <span>
+                    <strong>원본 그대로</strong>
+                    <small>영상 파일을 이동하거나 수정하지 않습니다.</small>
+                  </span>
+                </div>
+                <div>
+                  <span className="feature-icon">
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path
+                        d="M7 3v3M17 3v3M7 18v3M17 18v3M3 7h3M18 7h3M3 17h3M18 17h3"
+                        stroke="currentColor"
+                        strokeWidth="1.7"
+                        strokeLinecap="round"
+                      />
+                      <rect
+                        x="6"
+                        y="6"
+                        width="12"
+                        height="12"
+                        rx="3"
+                        stroke="currentColor"
+                        strokeWidth="1.7"
+                      />
+                      <path d="M10 10h4v4h-4z" fill="currentColor" />
+                    </svg>
+                  </span>
+                  <span>
+                    <strong>정확한 영상 식별</strong>
+                    <small>SHA-256으로 파일명이 바뀌어도 구분합니다.</small>
+                  </span>
+                </div>
+                <div>
+                  <span className="feature-icon">
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <ellipse
+                        cx="12"
+                        cy="6"
+                        rx="7"
+                        ry="3"
+                        stroke="currentColor"
+                        strokeWidth="1.7"
+                      />
+                      <path
+                        d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"
+                        stroke="currentColor"
+                        strokeWidth="1.7"
+                      />
+                    </svg>
+                  </span>
+                  <span>
+                    <strong>내 컴퓨터에 저장</strong>
+                    <small>영상 정보는 로컬 SQLite DB로 관리합니다.</small>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <section className="onboarding-card" aria-labelledby="folder-setup-title">
+              <div className="onboarding-steps" aria-label="라이브러리 설정 단계">
+                <div
+                  className={
+                    state.libraryRoot
+                      ? 'onboarding-step onboarding-step-complete'
+                      : 'onboarding-step onboarding-step-active'
+                  }
+                >
+                  <span>{state.libraryRoot ? '✓' : '1'}</span>
+                  <small>폴더 선택</small>
+                </div>
+                <span
+                  className={
+                    state.libraryRoot
+                      ? 'onboarding-step-line onboarding-step-line-complete'
+                      : 'onboarding-step-line'
+                  }
+                />
+                <div
+                  className={
+                    state.libraryRoot ? 'onboarding-step onboarding-step-active' : 'onboarding-step'
+                  }
+                >
+                  <span>2</span>
+                  <small>영상 스캔</small>
+                </div>
+              </div>
+
+              <div className="onboarding-card-heading">
+                <span className="folder-setup-icon">
+                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path
+                      d="M3.5 7.5h6l1.7 2h9.3v8.8a2.2 2.2 0 0 1-2.2 2.2H5.7a2.2 2.2 0 0 1-2.2-2.2V7.5Z"
+                      stroke="currentColor"
+                      strokeWidth="1.7"
+                      strokeLinejoin="round"
+                    />
+                    <path
+                      d="M3.5 8V5.7a2.2 2.2 0 0 1 2.2-2.2h4.2l1.8 2h6.6a2.2 2.2 0 0 1 2.2 2.2v1.8"
+                      stroke="currentColor"
+                      strokeWidth="1.7"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </span>
+                <div>
+                  <p className="eyebrow">GET STARTED</p>
+                  <h2 id="folder-setup-title">
+                    {state.libraryRoot ? '이 폴더를 스캔할까요?' : '영상 폴더를 선택하세요'}
+                  </h2>
+                </div>
+              </div>
+
+              {state.libraryRoot ? (
+                <div
+                  className={
+                    state.libraryRootAvailable
+                      ? 'selected-folder'
+                      : 'selected-folder selected-folder-unavailable'
+                  }
+                >
+                  <span className="selected-folder-status" aria-hidden="true" />
+                  <div>
+                    <strong>{activeFolderName}</strong>
+                    <span title={state.libraryRoot}>{state.libraryRoot}</span>
+                  </div>
+                  <small>{state.libraryRootAvailable ? '접근 가능' : '폴더를 찾을 수 없음'}</small>
+                </div>
+              ) : (
+                <div className="empty-folder-state">
+                  <span>아직 선택된 폴더가 없습니다.</span>
+                  <small>영상이 모여 있는 최상위 폴더 하나를 선택해 주세요.</small>
+                </div>
+              )}
+
+              {error ? (
+                <p className="onboarding-error" role="alert">
+                  {error}
+                </p>
+              ) : null}
+
+              <div className="onboarding-actions">
+                {state.libraryRoot ? (
+                  <button
+                    className="secondary-button onboarding-secondary-button"
+                    type="button"
+                    onClick={() => void chooseFolder()}
+                    disabled={choosingFolder || scanningFolder || databaseBusy}
+                  >
+                    {choosingFolder ? '선택 중…' : '다른 폴더 선택'}
+                  </button>
+                ) : null}
+                <button
+                  className="primary-button onboarding-primary-button"
+                  type="button"
+                  onClick={() => void (state.libraryRoot ? scanFolder() : chooseFolder())}
+                  disabled={
+                    choosingFolder ||
+                    scanningFolder ||
+                    databaseBusy ||
+                    Boolean(state.libraryRoot && !state.libraryRootAvailable)
+                  }
+                >
+                  {choosingFolder
+                    ? '폴더 여는 중…'
+                    : state.libraryRoot
+                      ? '영상 스캔 시작'
+                      : '영상 폴더 선택하기'}
+                  <span aria-hidden="true">→</span>
+                </button>
+              </div>
+
+              <p className="onboarding-note">
+                선택한 폴더에서 최대 3단계까지 탐색합니다. 영상 원본은 변경하지 않습니다.
+              </p>
+              <div className="onboarding-restore-entry">
+                <span>이전에 사용하던 DB 백업이 있나요?</span>
+                <button
+                  type="button"
+                  onClick={() => void restoreDatabaseBackup()}
+                  disabled={restoringDatabase || choosingFolder || scanningFolder}
+                >
+                  {restoringDatabase ? '복원 준비 중…' : '백업에서 복원'}
+                </button>
+              </div>
+            </section>
+          </div>
+        </section>
+      )}
+
+      {scanningFolder ? (
+        <div className="scan-backdrop">
+          <section
+            className="scan-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="scan-progress-title"
+          >
+            <div className="scan-progress-visual" aria-hidden="true">
+              <span />
+              <BrandIcon />
+            </div>
+            <p className="eyebrow">BUILDING LIBRARY</p>
+            <h2 id="scan-progress-title">영상 라이브러리를 만들고 있습니다</h2>
+            <p className="scan-dialog-description">
+              폴더를 탐색하고 각 영상을 식별해 DB에 안전하게 저장하는 중입니다.
+            </p>
+            <div className="scan-current-folder" title={state.libraryRoot ?? undefined}>
+              <span className="loading-dots">
+                <i />
+                <i />
+                <i />
+              </span>
+              <strong>{activeFolderName}</strong>
+            </div>
+            <div className="scan-work-list" aria-label="진행 중인 작업">
+              <span>폴더 구조 확인</span>
+              <span>영상 해시 생성</span>
+              <span>DB 정보 저장</span>
+            </div>
+            <small>영상 수와 파일 크기에 따라 잠시 시간이 걸릴 수 있습니다.</small>
+          </section>
+        </div>
+      ) : null}
+
+      {scanCompletedOpen && scanSummary ? (
+        <div className="scan-backdrop">
+          <section
+            className="scan-dialog scan-complete-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="scan-complete-title"
+          >
+            <span className="scan-complete-icon" aria-hidden="true">
+              ✓
+            </span>
+            <p className="eyebrow">SCAN COMPLETE</p>
+            <h2 id="scan-complete-title">
+              {showLibrary
+                ? '영상 목록을 최신 상태로 업데이트했습니다'
+                : '영상 라이브러리가 준비되었습니다'}
+            </h2>
+            <p className="scan-dialog-description">
+              스캔 결과를 확인하고 영상 목록으로 이동하세요.
+            </p>
+            <div className="scan-summary-grid">
+              <div>
+                <strong>{scanSummary.fileCount.toLocaleString()}</strong>
+                <span>전체 파일</span>
+              </div>
+              <div>
+                <strong>{scanSummary.uniqueVideoCount.toLocaleString()}</strong>
+                <span>고유 영상</span>
+              </div>
+              <div>
+                <strong>{scanSummary.addedVideoCount.toLocaleString()}</strong>
+                <span>새 영상</span>
+              </div>
+            </div>
+            <p className="scan-summary-detail">
+              중복 파일 {scanSummary.duplicateFileCount}개 · 제거된 파일{' '}
+              {scanSummary.removedFileCount}개 · 깊이 초과 폴더 {scanSummary.excludedDirectoryCount}
+              개
+            </p>
+            <button
+              className="primary-button scan-complete-button"
+              type="button"
+              onClick={() => {
+                setScanCompletedOpen(false);
+                setShowLibrary(true);
+              }}
+              autoFocus
+            >
+              {showLibrary ? '확인' : '영상 목록 보기'}
+            </button>
+          </section>
+        </div>
       ) : null}
 
       {playingVideo?.playbackUrl ? (
