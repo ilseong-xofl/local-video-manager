@@ -274,6 +274,68 @@ h2 {
   font-weight: 750;
 }
 
+.library-filters {
+  display: grid;
+  grid-template-columns:
+    minmax(190px, 1fr) minmax(240px, 1.4fr) minmax(135px, 0.75fr) minmax(135px, 0.75fr)
+    auto;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 18px;
+  border: 1px solid #dce2eb;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.library-filter-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.library-filter-field > span {
+  color: #697381;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.library-filter-field input,
+.library-filter-field select {
+  width: 100%;
+  min-width: 0;
+  height: 42px;
+  padding: 0 11px;
+  border: 1px solid #cbd3df;
+  border-radius: 10px;
+  outline: none;
+  background: #fff;
+  color: #26313f;
+  font: inherit;
+  font-size: 13px;
+}
+
+.library-filter-field input:focus,
+.library-filter-field select:focus {
+  border-color: #5e7abd;
+  box-shadow: 0 0 0 3px rgba(76, 108, 179, 0.12);
+}
+
+.library-filter-submit {
+  align-self: end;
+  min-width: 88px;
+  height: 42px;
+  padding: 0 16px;
+}
+
+.library-filter-error {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #a83232;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .library-message {
   padding: 28px;
   border: 1px dashed #cfd5de;
@@ -1023,6 +1085,10 @@ h2 {
 
   .status-card-wide {
     grid-row: auto;
+  }
+
+  .library-filters {
+    grid-template-columns: 1fr;
   }
 
   .player-backdrop {

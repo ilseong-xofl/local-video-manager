@@ -6,10 +6,17 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AppDatabase } from './database';
 import { ThumbnailCache } from './thumbnail-cache';
-import { getLibraryVideoPage } from './video-library';
+import { getLibraryVideoPage, parseLibraryVideoQuery } from './video-library';
 import type { ScannedVideoFile } from './video-scanner';
 
 const temporaryDirectories: string[] = [];
+const ALL_VIDEOS_QUERY = {
+  dateFromMs: 0,
+  dateToMs: Date.parse('9999-12-31T23:59:59.999Z'),
+  searchQuery: '',
+  sortDirection: 'desc',
+  sortField: 'registeredAt',
+} as const;
 
 function createTemporaryDirectory(): string {
   const directory = mkdtempSync(join(tmpdir(), 'local-video-library-test-'));
@@ -52,7 +59,7 @@ describe('getLibraryVideoPage', () => {
     const createThumbnail = vi.fn(async () => Buffer.from('thumbnail'));
     const thumbnailCache = new ThumbnailCache(join(directory, 'thumbnails'), createThumbnail);
 
-    const page = await getLibraryVideoPage(database, thumbnailCache, 0);
+    const page = await getLibraryVideoPage(database, thumbnailCache, 0, ALL_VIDEOS_QUERY);
 
     expect(page).toMatchObject({ pageIndex: 0, pageSize: 24, totalItems: 2, totalPages: 1 });
     expect(page.items).toHaveLength(2);
@@ -82,7 +89,7 @@ describe('getLibraryVideoPage', () => {
     const createThumbnail = vi.fn(async () => Buffer.from('thumbnail'));
     const thumbnailCache = new ThumbnailCache(join(directory, 'thumbnails'), createThumbnail);
 
-    const page = await getLibraryVideoPage(database, thumbnailCache, 0);
+    const page = await getLibraryVideoPage(database, thumbnailCache, 0, ALL_VIDEOS_QUERY);
 
     expect(page.items[0]).toMatchObject({
       fileAvailable: false,
@@ -108,7 +115,7 @@ describe('getLibraryVideoPage', () => {
       throw new Error('Unsupported codec.');
     });
 
-    const page = await getLibraryVideoPage(database, thumbnailCache, 0);
+    const page = await getLibraryVideoPage(database, thumbnailCache, 0, ALL_VIDEOS_QUERY);
 
     expect(page.items[0]).toMatchObject({ fileAvailable: true, thumbnailDataUrl: null });
     database.close();
@@ -119,9 +126,29 @@ describe('getLibraryVideoPage', () => {
     const database = new AppDatabase(join(directory, 'app.sqlite'));
     const thumbnailCache = new ThumbnailCache(join(directory, 'thumbnails'), async () => null);
 
-    await expect(getLibraryVideoPage(database, thumbnailCache, -1)).rejects.toThrow(
-      'Invalid video page index.',
-    );
+    await expect(
+      getLibraryVideoPage(database, thumbnailCache, -1, ALL_VIDEOS_QUERY),
+    ).rejects.toThrow('Invalid video page index.');
     database.close();
+  });
+});
+
+describe('parseLibraryVideoQuery', () => {
+  it('trims a valid title query', () => {
+    expect(
+      parseLibraryVideoQuery({
+        ...ALL_VIDEOS_QUERY,
+        searchQuery: '  유머  ',
+      }),
+    ).toEqual({ ...ALL_VIDEOS_QUERY, searchQuery: '유머' });
+  });
+
+  it('rejects invalid sort and date ranges', () => {
+    expect(() => parseLibraryVideoQuery({ ...ALL_VIDEOS_QUERY, sortField: 'fileName' })).toThrow(
+      'Invalid video library query.',
+    );
+    expect(() =>
+      parseLibraryVideoQuery({ ...ALL_VIDEOS_QUERY, dateFromMs: 2, dateToMs: 1 }),
+    ).toThrow('Invalid video library query.');
   });
 });

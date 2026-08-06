@@ -11,6 +11,18 @@ export const IPC_CHANNELS = {
 export const VIDEO_SOURCE_URL_MAX_LENGTH = 2_048;
 export const VIDEO_SOURCE_CAPTION_MAX_LENGTH = 50_000;
 export const VIDEO_METADATA_SEARCH_MAX_LENGTH = 200;
+export const VIDEO_LIBRARY_SEARCH_MAX_LENGTH = 200;
+
+export type LibraryVideoSortDirection = 'asc' | 'desc';
+export type LibraryVideoSortField = 'modifiedAt' | 'registeredAt';
+
+export interface LibraryVideoQuery {
+  dateFromMs: number;
+  dateToMs: number;
+  searchQuery: string;
+  sortDirection: LibraryVideoSortDirection;
+  sortField: LibraryVideoSortField;
+}
 
 export interface LibraryStats {
   fileCount: number;
@@ -103,7 +115,7 @@ export interface VideoMetadataSearchResult extends VideoMetadataInput {
 export interface LocalVideoManagerApi {
   getBootstrapState(): Promise<BootstrapState>;
   chooseLibraryRoot(): Promise<ChooseLibraryRootResult>;
-  getLibraryVideoPage(pageIndex: number): Promise<LibraryVideoPage>;
+  getLibraryVideoPage(pageIndex: number, query: LibraryVideoQuery): Promise<LibraryVideoPage>;
   getVideoMetadata(contentHash: string): Promise<VideoMetadataDetail>;
   searchVideoMetadata(
     query: string,

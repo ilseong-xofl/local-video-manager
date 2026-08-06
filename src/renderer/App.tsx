@@ -4,15 +4,89 @@ import type {
   BootstrapState,
   LibraryVideoItem,
   LibraryVideoPage,
+  LibraryVideoQuery,
+  LibraryVideoSortDirection,
+  LibraryVideoSortField,
   VideoMetadataDetail,
   VideoMetadataSearchResult,
   VideoScanSummary,
 } from '../shared/contracts';
 import {
+  VIDEO_LIBRARY_SEARCH_MAX_LENGTH,
   VIDEO_METADATA_SEARCH_MAX_LENGTH,
   VIDEO_SOURCE_CAPTION_MAX_LENGTH,
   VIDEO_SOURCE_URL_MAX_LENGTH,
 } from '../shared/contracts';
+
+type LibrarySortOption = `${LibraryVideoSortField}-${LibraryVideoSortDirection}`;
+
+interface DefaultLibraryFilters {
+  dateFrom: string;
+  dateTo: string;
+  sortOption: LibrarySortOption;
+}
+
+const DEFAULT_LIBRARY_SORT_OPTION: LibrarySortOption = 'registeredAt-desc';
+
+function formatDateInput(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function createDefaultLibraryFilters(): DefaultLibraryFilters {
+  const dateTo = new Date();
+  const dateFrom = new Date(dateTo);
+  dateFrom.setFullYear(dateFrom.getFullYear() - 1);
+
+  return {
+    dateFrom: formatDateInput(dateFrom),
+    dateTo: formatDateInput(dateTo),
+    sortOption: DEFAULT_LIBRARY_SORT_OPTION,
+  };
+}
+
+function parseDateInput(value: string, endOfDay: boolean): number | null {
+  const [year, month, day] = value.split('-').map(Number);
+  if (!year || !month || !day) {
+    return null;
+  }
+
+  const date = new Date(
+    year,
+    month - 1,
+    day,
+    endOfDay ? 23 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 999 : 0,
+  );
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    return null;
+  }
+
+  return date.getTime();
+}
+
+function buildLibraryVideoQuery(
+  searchQuery: string,
+  sortOption: LibrarySortOption,
+  dateFrom: string,
+  dateTo: string,
+): LibraryVideoQuery | null {
+  const dateFromMs = parseDateInput(dateFrom, false);
+  const dateToMs = parseDateInput(dateTo, true);
+  if (dateFromMs === null || dateToMs === null || dateFromMs > dateToMs) {
+    return null;
+  }
+
+  const [sortField, sortDirection] = sortOption.split('-') as [
+    LibraryVideoSortField,
+    LibraryVideoSortDirection,
+  ];
+  return { dateFromMs, dateToMs, searchQuery, sortDirection, sortField };
+}
 
 function formatScanTime(value: string | null): string {
   return value ? new Date(value).toLocaleString('ko-KR') : '아직 불러오지 않았습니다.';
@@ -38,6 +112,24 @@ export function App() {
   const [scanSummary, setScanSummary] = useState<VideoScanSummary | null>(null);
   const [videoPage, setVideoPage] = useState<LibraryVideoPage | null>(null);
   const [loadingVideos, setLoadingVideos] = useState(false);
+  const [defaultLibraryFilters] = useState(createDefaultLibraryFilters);
+  const [librarySearchQuery, setLibrarySearchQuery] = useState('');
+  const [librarySortOption, setLibrarySortOption] = useState(defaultLibraryFilters.sortOption);
+  const [libraryDateFrom, setLibraryDateFrom] = useState(defaultLibraryFilters.dateFrom);
+  const [libraryDateTo, setLibraryDateTo] = useState(defaultLibraryFilters.dateTo);
+  const [libraryFilterError, setLibraryFilterError] = useState<string | null>(null);
+  const [appliedLibraryQuery, setAppliedLibraryQuery] = useState<LibraryVideoQuery>(() => {
+    const query = buildLibraryVideoQuery(
+      '',
+      defaultLibraryFilters.sortOption,
+      defaultLibraryFilters.dateFrom,
+      defaultLibraryFilters.dateTo,
+    );
+    if (!query) {
+      throw new Error('Failed to create the default video library query.');
+    }
+    return query;
+  });
   const [playingVideo, setPlayingVideo] = useState<LibraryVideoItem | null>(null);
   const [playbackError, setPlaybackError] = useState(false);
   const [editingVideo, setEditingVideo] = useState<LibraryVideoItem | null>(null);
@@ -64,8 +156,8 @@ export function App() {
       .getBootstrapState()
       .then((bootstrapState) => {
         setState(bootstrapState);
-        if (bootstrapState.libraryStats.uniqueVideoCount > 0) {
-          void loadVideoPage(0);
+        if (bootstrapState.libraryStats.lastScannedAt) {
+          void loadVideoPage(0, appliedLibraryQuery);
         }
       })
       .catch(() => setError('앱 초기 정보를 불러오지 못했습니다.'));
@@ -98,12 +190,12 @@ export function App() {
     };
   }, [editingVideo, metadataSearchOpen, playingVideo]);
 
-  async function loadVideoPage(pageIndex: number) {
+  async function loadVideoPage(pageIndex: number, query = appliedLibraryQuery) {
     setLoadingVideos(true);
     setError(null);
 
     try {
-      setVideoPage(await window.localVideoManager.getLibraryVideoPage(pageIndex));
+      setVideoPage(await window.localVideoManager.getLibraryVideoPage(pageIndex, query));
     } catch {
       setError('영상 목록과 썸네일을 불러오지 못했습니다.');
     } finally {
@@ -123,7 +215,7 @@ export function App() {
         setScanSummary(null);
         if (folderChanged) {
           setVideoPage(null);
-          if (result.state.libraryStats.uniqueVideoCount > 0) {
+          if (result.state.libraryStats.lastScannedAt) {
             await loadVideoPage(0);
           }
         }
@@ -149,6 +241,24 @@ export function App() {
     } finally {
       setScanningFolder(false);
     }
+  }
+
+  async function applyLibraryFilters(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const query = buildLibraryVideoQuery(
+      librarySearchQuery,
+      librarySortOption,
+      libraryDateFrom,
+      libraryDateTo,
+    );
+    if (!query) {
+      setLibraryFilterError('시작일은 종료일보다 늦을 수 없습니다. 날짜 범위를 확인하세요.');
+      return;
+    }
+
+    setLibraryFilterError(null);
+    setAppliedLibraryQuery(query);
+    await loadVideoPage(0, query);
   }
 
   function openPlayer(video: LibraryVideoItem) {
@@ -388,15 +498,86 @@ export function App() {
               <p className="eyebrow">VIDEO LIBRARY</p>
               <h2 id="video-library-heading">영상 목록</h2>
             </div>
-            <span className="library-count">
-              {videoPage?.totalItems ?? state.libraryStats.uniqueVideoCount}개 고유 영상
-            </span>
+            <span className="library-count">{videoPage?.totalItems ?? 0}개 조회 결과</span>
           </div>
+
+          <form className="library-filters" onSubmit={(event) => void applyLibraryFilters(event)}>
+            <label className="library-filter-field">
+              <span>정렬</span>
+              <select
+                value={librarySortOption}
+                onChange={(event) => {
+                  setLibrarySortOption(event.target.value as LibrarySortOption);
+                  setLibraryFilterError(null);
+                }}
+                disabled={loadingVideos}
+              >
+                <option value="registeredAt-desc">등록일 · 내림차순 (최신순)</option>
+                <option value="registeredAt-asc">등록일 · 오름차순 (오래된순)</option>
+                <option value="modifiedAt-desc">수정일 · 내림차순 (최신순)</option>
+                <option value="modifiedAt-asc">수정일 · 오름차순 (오래된순)</option>
+              </select>
+            </label>
+            <label className="library-filter-field library-filter-search">
+              <span>제목 검색</span>
+              <input
+                type="search"
+                value={librarySearchQuery}
+                onChange={(event) => {
+                  setLibrarySearchQuery(event.target.value);
+                  setLibraryFilterError(null);
+                }}
+                placeholder="파일명 일부를 입력하세요"
+                maxLength={VIDEO_LIBRARY_SEARCH_MAX_LENGTH}
+                disabled={loadingVideos}
+              />
+            </label>
+            <label className="library-filter-field">
+              <span>{librarySortOption.startsWith('registeredAt') ? '등록일' : '수정일'} 시작</span>
+              <input
+                type="date"
+                value={libraryDateFrom}
+                max={libraryDateTo}
+                onChange={(event) => {
+                  setLibraryDateFrom(event.target.value);
+                  setLibraryFilterError(null);
+                }}
+                disabled={loadingVideos}
+                required
+              />
+            </label>
+            <label className="library-filter-field">
+              <span>{librarySortOption.startsWith('registeredAt') ? '등록일' : '수정일'} 종료</span>
+              <input
+                type="date"
+                value={libraryDateTo}
+                min={libraryDateFrom}
+                onChange={(event) => {
+                  setLibraryDateTo(event.target.value);
+                  setLibraryFilterError(null);
+                }}
+                disabled={loadingVideos}
+                required
+              />
+            </label>
+            <button
+              className="primary-button library-filter-submit"
+              type="submit"
+              disabled={loadingVideos}
+            >
+              {loadingVideos ? '조회 중…' : '조회'}
+            </button>
+            {libraryFilterError ? (
+              <p className="library-filter-error" role="alert">
+                {libraryFilterError}
+              </p>
+            ) : null}
+          </form>
 
           {loadingVideos && !videoPage ? <p className="library-message">썸네일 생성 중…</p> : null}
 
           {!loadingVideos && videoPage?.items.length === 0 ? (
-            <p className="library-message">선택한 폴더에서 지원하는 영상 파일을 찾지 못했습니다.</p>
+            <p className="library-message">조회 조건에 맞는 영상을 찾지 못했습니다.</p>
           ) : null}
 
           {videoPage?.items.length ? (

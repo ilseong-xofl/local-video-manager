@@ -7,6 +7,7 @@ import Database from 'better-sqlite3';
 import type {
   LibraryStats,
   LibraryVideo,
+  LibraryVideoQuery,
   VideoMetadataDetail,
   VideoMetadataInput,
   VideoMetadataRevision,
@@ -21,6 +22,13 @@ const ACTIVE_MANAGED_FOLDER_ID_KEY = 'active_managed_folder_id';
 const LEGACY_LIBRARY_ROOT_KEY = 'library_root';
 const LEGACY_LAST_SCANNED_AT_KEY = 'last_scanned_at';
 const METADATA_SEARCH_LIMIT = 50;
+const ALL_LIBRARY_VIDEOS_QUERY: LibraryVideoQuery = {
+  dateFromMs: 0,
+  dateToMs: Date.parse('9999-12-31T23:59:59.999Z'),
+  searchQuery: '',
+  sortDirection: 'desc',
+  sortField: 'registeredAt',
+};
 
 interface SettingRow {
   value: string;
@@ -29,6 +37,10 @@ interface SettingRow {
 interface CountRow {
   fileCount: number;
   uniqueVideoCount: number;
+}
+
+interface TotalRow {
+  totalItems: number;
 }
 
 interface ContentHashRow {
@@ -82,6 +94,31 @@ function normalizeLibraryRoot(rootPath: string): { normalizedPath: string; rootP
   };
 }
 
+function normalizeSearchText(value: string): string {
+  return value.normalize('NFC').toLowerCase();
+}
+
+function getLibraryVideoQueryParts(query: LibraryVideoQuery): {
+  dateColumn: 'ranked_files.modifiedAtMs' | 'videos.created_at';
+  dateFrom: number | string;
+  dateTo: number | string;
+  normalizedSearchQuery: string;
+  orderBy: string;
+} {
+  const isModifiedDate = query.sortField === 'modifiedAt';
+  const direction = query.sortDirection === 'asc' ? 'ASC' : 'DESC';
+
+  return {
+    dateColumn: isModifiedDate ? 'ranked_files.modifiedAtMs' : 'videos.created_at',
+    dateFrom: isModifiedDate ? query.dateFromMs : new Date(query.dateFromMs).toISOString(),
+    dateTo: isModifiedDate ? query.dateToMs : new Date(query.dateToMs).toISOString(),
+    normalizedSearchQuery: normalizeSearchText(query.searchQuery),
+    orderBy: isModifiedDate
+      ? `ranked_files.modifiedAtMs ${direction}, videos.created_at DESC`
+      : `videos.created_at ${direction}, ranked_files.modifiedAtMs DESC`,
+  };
+}
+
 export class AppDatabase {
   private readonly database: Database.Database;
 
@@ -90,6 +127,9 @@ export class AppDatabase {
     this.database = new Database(databasePath);
     this.database.pragma('journal_mode = WAL');
     this.database.pragma('foreign_keys = ON');
+    this.database.function('normalize_search_text', { deterministic: true }, (value: unknown) =>
+      typeof value === 'string' ? normalizeSearchText(value) : '',
+    );
     this.migrate();
   }
 
@@ -161,12 +201,73 @@ export class AppDatabase {
       .all(managedFolder.id) as ScannedVideoFile[];
   }
 
-  public getLibraryVideos(limit: number, offset: number): LibraryVideo[] {
+  public getLibraryVideoCount(query: LibraryVideoQuery = ALL_LIBRARY_VIDEOS_QUERY): number {
+    const managedFolder = this.getActiveManagedFolder();
+    if (!managedFolder) {
+      return 0;
+    }
+
+    const queryParts = getLibraryVideoQueryParts(query);
+    const row = this.database
+      .prepare(
+        `
+          WITH ranked_files AS (
+            SELECT
+              content_hash AS contentHash,
+              file_name AS fileName,
+              modified_at_ms AS modifiedAtMs,
+              relative_path AS relativePath,
+              size_bytes AS sizeBytes,
+              ROW_NUMBER() OVER (
+                PARTITION BY content_hash
+                ORDER BY modified_at_ms DESC, relative_path COLLATE NOCASE, relative_path
+              ) AS position
+            FROM video_files
+            WHERE managed_folder_id = ? AND is_present = 1
+          )
+          SELECT COUNT(*) AS totalItems
+          FROM ranked_files
+          JOIN videos ON videos.content_hash = ranked_files.contentHash
+          WHERE
+            ranked_files.position = 1
+            AND ${queryParts.dateColumn} BETWEEN ? AND ?
+            AND (
+              ? = ''
+              OR EXISTS (
+                SELECT 1
+                FROM video_files AS matching_files
+                WHERE
+                  matching_files.managed_folder_id = ?
+                  AND matching_files.is_present = 1
+                  AND matching_files.content_hash = ranked_files.contentHash
+                  AND instr(normalize_search_text(matching_files.file_name), ?) > 0
+              )
+            )
+        `,
+      )
+      .get(
+        managedFolder.id,
+        queryParts.dateFrom,
+        queryParts.dateTo,
+        queryParts.normalizedSearchQuery,
+        managedFolder.id,
+        queryParts.normalizedSearchQuery,
+      ) as TotalRow;
+
+    return row.totalItems;
+  }
+
+  public getLibraryVideos(
+    limit: number,
+    offset: number,
+    query: LibraryVideoQuery = ALL_LIBRARY_VIDEOS_QUERY,
+  ): LibraryVideo[] {
     const managedFolder = this.getActiveManagedFolder();
     if (!managedFolder) {
       return [];
     }
 
+    const queryParts = getLibraryVideoQueryParts(query);
     const rows = this.database
       .prepare(
         `
@@ -196,16 +297,38 @@ export class AppDatabase {
           JOIN videos ON videos.content_hash = ranked_files.contentHash
           LEFT JOIN video_metadata
             ON video_metadata.content_hash = ranked_files.contentHash
-          WHERE ranked_files.position = 1
+          WHERE
+            ranked_files.position = 1
+            AND ${queryParts.dateColumn} BETWEEN ? AND ?
+            AND (
+              ? = ''
+              OR EXISTS (
+                SELECT 1
+                FROM video_files AS matching_files
+                WHERE
+                  matching_files.managed_folder_id = ?
+                  AND matching_files.is_present = 1
+                  AND matching_files.content_hash = ranked_files.contentHash
+                  AND instr(normalize_search_text(matching_files.file_name), ?) > 0
+              )
+            )
           ORDER BY
-            videos.created_at DESC,
-            ranked_files.modifiedAtMs DESC,
+            ${queryParts.orderBy},
             ranked_files.fileName COLLATE NOCASE,
             ranked_files.relativePath
           LIMIT ? OFFSET ?
         `,
       )
-      .all(managedFolder.id, limit, offset) as LibraryVideoRow[];
+      .all(
+        managedFolder.id,
+        queryParts.dateFrom,
+        queryParts.dateTo,
+        queryParts.normalizedSearchQuery,
+        managedFolder.id,
+        queryParts.normalizedSearchQuery,
+        limit,
+        offset,
+      ) as LibraryVideoRow[];
 
     return rows.map((row) => ({
       ...row,
@@ -293,7 +416,7 @@ export class AppDatabase {
   }
 
   public searchVideoMetadata(query: string, excludeContentHash: string): MetadataSearchRecord[] {
-    const searchPattern = `%${query}%`;
+    const normalizedQuery = normalizeSearchText(query);
     const rows = this.database
       .prepare(
         `
@@ -328,15 +451,15 @@ export class AppDatabase {
           WHERE
             videos.content_hash <> ?
             AND (
-              videos.content_hash LIKE ?
-              OR COALESCE(video_metadata.source_caption, '') LIKE ? COLLATE NOCASE
-              OR COALESCE(video_metadata.source_url, '') LIKE ? COLLATE NOCASE
+              instr(normalize_search_text(videos.content_hash), ?) > 0
+              OR instr(normalize_search_text(video_metadata.source_caption), ?) > 0
+              OR instr(normalize_search_text(video_metadata.source_url), ?) > 0
               OR EXISTS (
                 SELECT 1
                 FROM video_files AS matching_files
                 WHERE
                   matching_files.content_hash = videos.content_hash
-                  AND matching_files.file_name LIKE ? COLLATE NOCASE
+                  AND instr(normalize_search_text(matching_files.file_name), ?) > 0
               )
             )
           ORDER BY filePresent DESC, videos.created_at DESC, fileName COLLATE NOCASE
@@ -345,10 +468,10 @@ export class AppDatabase {
       )
       .all(
         excludeContentHash,
-        searchPattern,
-        searchPattern,
-        searchPattern,
-        searchPattern,
+        normalizedQuery,
+        normalizedQuery,
+        normalizedQuery,
+        normalizedQuery,
         METADATA_SEARCH_LIMIT,
       ) as MetadataSearchRow[];
 

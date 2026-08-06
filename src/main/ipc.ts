@@ -50,8 +50,8 @@ export function registerIpcHandlers(
 ): () => void {
   ipcMain.handle(IPC_CHANNELS.getBootstrapState, () => buildBootstrapState(database));
 
-  ipcMain.handle(IPC_CHANNELS.getLibraryVideoPage, (_event, pageIndex: unknown) =>
-    getLibraryVideoPage(database, thumbnailCache, pageIndex as number),
+  ipcMain.handle(IPC_CHANNELS.getLibraryVideoPage, (_event, pageIndex: unknown, query: unknown) =>
+    getLibraryVideoPage(database, thumbnailCache, pageIndex, query),
   );
 
   ipcMain.handle(IPC_CHANNELS.getVideoMetadata, (_event, contentHash: unknown) =>

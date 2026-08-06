@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import type { LibraryVideoQuery } from '../shared/contracts';
 import { AppDatabase } from './database';
 import type { ScannedVideoFile } from './video-scanner';
 
@@ -27,6 +28,17 @@ function scannedVideo(
     modifiedAtMs,
     relativePath,
     sizeBytes: 10,
+  };
+}
+
+function libraryQuery(overrides: Partial<LibraryVideoQuery> = {}): LibraryVideoQuery {
+  return {
+    dateFromMs: 0,
+    dateToMs: Date.parse('9999-12-31T23:59:59.999Z'),
+    searchQuery: '',
+    sortDirection: 'desc',
+    sortField: 'registeredAt',
+    ...overrides,
   };
 }
 
@@ -205,6 +217,91 @@ describe('AppDatabase', () => {
       modifiedAtMs: 1_000,
       registeredAt: '2026-08-06T02:00:00.000Z',
     });
+    database.close();
+  });
+
+  it('filters and sorts videos by registration or modified date', () => {
+    vi.useFakeTimers();
+    const database = new AppDatabase(createDatabasePath());
+    const olderHash = 'a'.repeat(64);
+    const newerHash = 'b'.repeat(64);
+    const olderModifiedAt = Date.parse('2026-07-01T00:00:00.000Z');
+    const newerModifiedAt = Date.parse('2026-05-01T00:00:00.000Z');
+    database.setLibraryRoot('/videos');
+
+    vi.setSystemTime(new Date('2025-06-01T00:00:00.000Z'));
+    database.syncVideoFiles([scannedVideo('older.mp4', olderHash, olderModifiedAt)], {
+      hashedFileCount: 1,
+      reusedHashCount: 0,
+    });
+    vi.setSystemTime(new Date('2026-06-01T00:00:00.000Z'));
+    database.syncVideoFiles(
+      [
+        scannedVideo('older.mp4', olderHash, olderModifiedAt),
+        scannedVideo('newer.mp4', newerHash, newerModifiedAt),
+      ],
+      { hashedFileCount: 1, reusedHashCount: 1 },
+    );
+
+    expect(
+      database
+        .getLibraryVideos(24, 0, libraryQuery({ sortDirection: 'asc' }))
+        .map((video) => video.contentHash),
+    ).toEqual([olderHash, newerHash]);
+    expect(
+      database
+        .getLibraryVideos(24, 0, libraryQuery({ sortDirection: 'desc' }))
+        .map((video) => video.contentHash),
+    ).toEqual([newerHash, olderHash]);
+    expect(
+      database
+        .getLibraryVideos(24, 0, libraryQuery({ sortDirection: 'asc', sortField: 'modifiedAt' }))
+        .map((video) => video.contentHash),
+    ).toEqual([newerHash, olderHash]);
+    expect(
+      database
+        .getLibraryVideos(24, 0, libraryQuery({ sortDirection: 'desc', sortField: 'modifiedAt' }))
+        .map((video) => video.contentHash),
+    ).toEqual([olderHash, newerHash]);
+
+    const registeredIn2026 = libraryQuery({
+      dateFromMs: Date.parse('2026-01-01T00:00:00.000Z'),
+      dateToMs: Date.parse('2026-12-31T23:59:59.999Z'),
+    });
+    expect(database.getLibraryVideoCount(registeredIn2026)).toBe(1);
+    expect(database.getLibraryVideos(24, 0, registeredIn2026)[0].contentHash).toBe(newerHash);
+
+    const modifiedAfterJune = libraryQuery({
+      dateFromMs: Date.parse('2026-06-01T00:00:00.000Z'),
+      dateToMs: Date.parse('2026-08-01T00:00:00.000Z'),
+      sortField: 'modifiedAt',
+    });
+    expect(database.getLibraryVideoCount(modifiedAfterJune)).toBe(1);
+    expect(database.getLibraryVideos(24, 0, modifiedAfterJune)[0].contentHash).toBe(olderHash);
+    database.close();
+  });
+
+  it('partially matches an NFC title query against macOS NFD file names', () => {
+    const database = new AppDatabase(createDatabasePath());
+    const sourceHash = 'a'.repeat(64);
+    const targetHash = 'b'.repeat(64);
+    const nfdFileName = '일본-유머-0001.mp4'.normalize('NFD');
+    database.setLibraryRoot('/videos');
+    database.syncVideoFiles(
+      [scannedVideo(nfdFileName, sourceHash), scannedVideo('target.mp4', targetHash)],
+      { hashedFileCount: 2, reusedHashCount: 0 },
+    );
+    database.saveVideoMetadata(sourceHash, {
+      sourceCaption: '원본 캡션',
+      sourceUrl: null,
+    });
+
+    const query = libraryQuery({ searchQuery: '유머' });
+    expect(database.getLibraryVideoCount(query)).toBe(1);
+    expect(database.getLibraryVideos(24, 0, query)[0].contentHash).toBe(sourceHash);
+    expect(database.searchVideoMetadata('유머', targetHash)).toEqual([
+      expect.objectContaining({ contentHash: sourceHash, fileName: nfdFileName }),
+    ]);
     database.close();
   });
 
