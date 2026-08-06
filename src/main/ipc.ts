@@ -11,6 +11,7 @@ import {
 import type { AppDatabase } from './database';
 import type { ThumbnailCache } from './thumbnail-cache';
 import { getLibraryVideoPage } from './video-library';
+import { parseContentHash, parseVideoMetadataInput } from './video-metadata';
 import { scanVideoDirectory } from './video-scanner';
 
 function isDirectoryAvailable(directoryPath: string | null): boolean {
@@ -46,6 +47,14 @@ export function registerIpcHandlers(
 
   ipcMain.handle(IPC_CHANNELS.getLibraryVideoPage, (_event, pageIndex: unknown) =>
     getLibraryVideoPage(database, thumbnailCache, pageIndex as number),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.getVideoMetadata, (_event, contentHash: unknown) =>
+    database.getVideoMetadata(parseContentHash(contentHash)),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.saveVideoMetadata, (_event, contentHash: unknown, input: unknown) =>
+    database.saveVideoMetadata(parseContentHash(contentHash), parseVideoMetadataInput(input)),
   );
 
   ipcMain.handle(IPC_CHANNELS.chooseLibraryRoot, async (): Promise<ChooseLibraryRootResult> => {
@@ -94,6 +103,8 @@ export function registerIpcHandlers(
     ipcMain.removeHandler(IPC_CHANNELS.getBootstrapState);
     ipcMain.removeHandler(IPC_CHANNELS.chooseLibraryRoot);
     ipcMain.removeHandler(IPC_CHANNELS.getLibraryVideoPage);
+    ipcMain.removeHandler(IPC_CHANNELS.getVideoMetadata);
+    ipcMain.removeHandler(IPC_CHANNELS.saveVideoMetadata);
     ipcMain.removeHandler(IPC_CHANNELS.scanLibrary);
   };
 }

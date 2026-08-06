@@ -4,8 +4,10 @@ import type {
   BootstrapState,
   LibraryVideoItem,
   LibraryVideoPage,
+  VideoMetadataDetail,
   VideoScanSummary,
 } from '../shared/contracts';
+import { VIDEO_SOURCE_CAPTION_MAX_LENGTH, VIDEO_SOURCE_URL_MAX_LENGTH } from '../shared/contracts';
 
 function formatScanTime(value: string | null): string {
   return value ? new Date(value).toLocaleString('ko-KR') : '아직 불러오지 않았습니다.';
@@ -29,6 +31,14 @@ export function App() {
   const [loadingVideos, setLoadingVideos] = useState(false);
   const [playingVideo, setPlayingVideo] = useState<LibraryVideoItem | null>(null);
   const [playbackError, setPlaybackError] = useState(false);
+  const [editingVideo, setEditingVideo] = useState<LibraryVideoItem | null>(null);
+  const [videoMetadata, setVideoMetadata] = useState<VideoMetadataDetail | null>(null);
+  const [sourceUrl, setSourceUrl] = useState('');
+  const [sourceCaption, setSourceCaption] = useState('');
+  const [loadingMetadata, setLoadingMetadata] = useState(false);
+  const [savingMetadata, setSavingMetadata] = useState(false);
+  const [metadataError, setMetadataError] = useState<string | null>(null);
+  const [metadataSaved, setMetadataSaved] = useState(false);
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
@@ -44,14 +54,18 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!playingVideo) {
+    if (!playingVideo && !editingVideo) {
       return;
     }
 
     const previousOverflow = document.body.style.overflow;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        closePlayer();
+        if (playingVideo) {
+          closePlayer();
+        } else {
+          closeMetadataEditor();
+        }
       }
     };
 
@@ -62,7 +76,7 @@ export function App() {
       document.body.style.overflow = previousOverflow;
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [playingVideo]);
+  }, [editingVideo, playingVideo]);
 
   async function loadVideoPage(pageIndex: number) {
     setLoadingVideos(true);
@@ -133,6 +147,85 @@ export function App() {
 
     setPlayingVideo(null);
     setPlaybackError(false);
+  }
+
+  async function openMetadataEditor(video: LibraryVideoItem) {
+    setEditingVideo(video);
+    setVideoMetadata(null);
+    setSourceUrl('');
+    setSourceCaption('');
+    setMetadataError(null);
+    setMetadataSaved(false);
+    setLoadingMetadata(true);
+
+    try {
+      const detail = await window.localVideoManager.getVideoMetadata(video.contentHash);
+      setVideoMetadata(detail);
+      setSourceUrl(detail.current?.sourceUrl ?? '');
+      setSourceCaption(detail.current?.sourceCaption ?? '');
+    } catch {
+      setMetadataError('등록된 영상 정보를 불러오지 못했습니다.');
+    } finally {
+      setLoadingMetadata(false);
+    }
+  }
+
+  function closeMetadataEditor() {
+    setEditingVideo(null);
+    setVideoMetadata(null);
+    setMetadataError(null);
+    setMetadataSaved(false);
+  }
+
+  async function saveMetadata(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingVideo) {
+      return;
+    }
+
+    setSavingMetadata(true);
+    setMetadataError(null);
+    setMetadataSaved(false);
+
+    try {
+      const detail = await window.localVideoManager.saveVideoMetadata(editingVideo.contentHash, {
+        sourceCaption,
+        sourceUrl,
+      });
+      setVideoMetadata(detail);
+      setSourceUrl(detail.current?.sourceUrl ?? '');
+      setSourceCaption(detail.current?.sourceCaption ?? '');
+      setMetadataSaved(true);
+      setEditingVideo((currentVideo) =>
+        currentVideo
+          ? {
+              ...currentVideo,
+              metadataRegistered: detail.current !== null,
+              metadataUpdatedAt: detail.current?.updatedAt ?? null,
+            }
+          : currentVideo,
+      );
+      setVideoPage((currentPage) =>
+        currentPage
+          ? {
+              ...currentPage,
+              items: currentPage.items.map((video) =>
+                video.contentHash === editingVideo.contentHash
+                  ? {
+                      ...video,
+                      metadataRegistered: detail.current !== null,
+                      metadataUpdatedAt: detail.current?.updatedAt ?? null,
+                    }
+                  : video,
+              ),
+            }
+          : currentPage,
+      );
+    } catch {
+      setMetadataError('URL 또는 캡션을 확인한 뒤 다시 저장하세요.');
+    } finally {
+      setSavingMetadata(false);
+    }
   }
 
   return (
@@ -277,6 +370,17 @@ export function App() {
                         SHA-256 {video.contentHash.slice(0, 10)}…
                       </span>
                     </div>
+                    <button
+                      className={
+                        video.metadataRegistered
+                          ? 'metadata-button metadata-button-registered'
+                          : 'metadata-button'
+                      }
+                      type="button"
+                      onClick={() => void openMetadataEditor(video)}
+                    >
+                      {video.metadataRegistered ? '정보 수정' : '정보 등록'}
+                    </button>
                   </div>
                 </article>
               ))}
@@ -356,6 +460,139 @@ export function App() {
                 </p>
               ) : null}
             </div>
+          </section>
+        </div>
+      ) : null}
+
+      {editingVideo ? (
+        <div
+          className="metadata-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeMetadataEditor();
+            }
+          }}
+        >
+          <section
+            className="metadata-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="metadata-title"
+          >
+            <header className="metadata-header">
+              <div>
+                <p className="eyebrow">SOURCE INFORMATION</p>
+                <h2 id="metadata-title" title={editingVideo.fileName}>
+                  {editingVideo.metadataRegistered ? '영상 정보 수정' : '영상 정보 등록'}
+                </h2>
+                <p title={editingVideo.fileName}>{editingVideo.fileName}</p>
+              </div>
+              <button
+                className="metadata-close-button"
+                type="button"
+                onClick={closeMetadataEditor}
+                aria-label="영상 정보 닫기"
+              >
+                ×
+              </button>
+            </header>
+
+            <form className="metadata-form" onSubmit={(event) => void saveMetadata(event)}>
+              <label>
+                <span>원본 URL</span>
+                <input
+                  type="url"
+                  value={sourceUrl}
+                  onChange={(event) => {
+                    setSourceUrl(event.target.value);
+                    setMetadataSaved(false);
+                  }}
+                  placeholder="https://www.instagram.com/reel/..."
+                  maxLength={VIDEO_SOURCE_URL_MAX_LENGTH}
+                  disabled={loadingMetadata || savingMetadata}
+                />
+              </label>
+              <label>
+                <span>원본 캡션</span>
+                <textarea
+                  value={sourceCaption}
+                  onChange={(event) => {
+                    setSourceCaption(event.target.value);
+                    setMetadataSaved(false);
+                  }}
+                  placeholder="다운로드할 때 확인한 원본 캡션을 입력하세요."
+                  maxLength={VIDEO_SOURCE_CAPTION_MAX_LENGTH}
+                  rows={7}
+                  disabled={loadingMetadata || savingMetadata}
+                />
+                <small>
+                  {sourceCaption.length.toLocaleString('ko-KR')} /{' '}
+                  {VIDEO_SOURCE_CAPTION_MAX_LENGTH.toLocaleString('ko-KR')}자
+                </small>
+              </label>
+
+              {loadingMetadata ? <p className="metadata-status">정보를 불러오는 중…</p> : null}
+              {metadataError ? (
+                <p className="metadata-error" role="alert">
+                  {metadataError}
+                </p>
+              ) : null}
+              {metadataSaved ? (
+                <p className="metadata-success" role="status">
+                  저장했습니다.
+                </p>
+              ) : null}
+
+              <div className="metadata-actions">
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={closeMetadataEditor}
+                  disabled={savingMetadata}
+                >
+                  닫기
+                </button>
+                <button
+                  className="primary-button"
+                  type="submit"
+                  disabled={
+                    loadingMetadata ||
+                    savingMetadata ||
+                    (!sourceUrl.trim() && !sourceCaption.trim())
+                  }
+                >
+                  {savingMetadata ? '저장 중…' : '정보 저장'}
+                </button>
+              </div>
+            </form>
+
+            <section className="metadata-history" aria-labelledby="metadata-history-title">
+              <div className="metadata-history-heading">
+                <h3 id="metadata-history-title">변경 이력</h3>
+                <span>{videoMetadata?.revisions.length ?? 0}개</span>
+              </div>
+              {videoMetadata?.revisions.length ? (
+                <ol>
+                  {videoMetadata.revisions.map((revision) => (
+                    <li key={revision.id}>
+                      <time dateTime={revision.createdAt}>
+                        {new Date(revision.createdAt).toLocaleString('ko-KR')}
+                      </time>
+                      {revision.sourceUrl ? (
+                        <p className="metadata-history-url" title={revision.sourceUrl}>
+                          {revision.sourceUrl}
+                        </p>
+                      ) : null}
+                      {revision.sourceCaption ? (
+                        <p className="metadata-history-caption">{revision.sourceCaption}</p>
+                      ) : null}
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="metadata-history-empty">아직 저장 이력이 없습니다.</p>
+              )}
+            </section>
           </section>
         </div>
       ) : null}

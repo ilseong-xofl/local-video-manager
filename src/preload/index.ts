@@ -7,6 +7,9 @@ const api: LocalVideoManagerApi = {
   chooseLibraryRoot: () => ipcRenderer.invoke(IPC_CHANNELS.chooseLibraryRoot),
   getLibraryVideoPage: (pageIndex) =>
     ipcRenderer.invoke(IPC_CHANNELS.getLibraryVideoPage, pageIndex),
+  getVideoMetadata: (contentHash) => ipcRenderer.invoke(IPC_CHANNELS.getVideoMetadata, contentHash),
+  saveVideoMetadata: (contentHash, input) =>
+    ipcRenderer.invoke(IPC_CHANNELS.saveVideoMetadata, contentHash, input),
   scanLibrary: () => ipcRenderer.invoke(IPC_CHANNELS.scanLibrary),
 };
 

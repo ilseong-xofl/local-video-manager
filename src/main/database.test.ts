@@ -129,12 +129,16 @@ describe('AppDatabase', () => {
       {
         contentHash: firstHash,
         fileName: 'first.mp4',
+        metadataRegistered: false,
+        metadataUpdatedAt: null,
         relativePath: 'first.mp4',
         sizeBytes: 10,
       },
       {
         contentHash: secondHash,
         fileName: 'middle.mov',
+        metadataRegistered: false,
+        metadataUpdatedAt: null,
         relativePath: 'middle.mov',
         sizeBytes: 10,
       },
@@ -143,6 +147,8 @@ describe('AppDatabase', () => {
       {
         contentHash: thirdHash,
         fileName: 'z-last.webm',
+        metadataRegistered: false,
+        metadataUpdatedAt: null,
         relativePath: 'z-last.webm',
         sizeBytes: 10,
       },
@@ -162,10 +168,119 @@ describe('AppDatabase', () => {
     expect(database.getLibraryVideoByHash(contentHash)).toEqual({
       contentHash,
       fileName: 'first.mp4',
+      metadataRegistered: false,
+      metadataUpdatedAt: null,
       relativePath: 'first.mp4',
       sizeBytes: 10,
     });
     expect(database.getLibraryVideoByHash('b'.repeat(64))).toBeNull();
+    database.close();
+  });
+
+  it('stores current video metadata and records only actual changes', () => {
+    const databasePath = createDatabasePath();
+    const database = new AppDatabase(databasePath);
+    const contentHash = 'a'.repeat(64);
+    database.setLibraryRoot('/videos');
+    database.syncVideoFiles([scannedVideo('first.mp4', contentHash)], {
+      hashedFileCount: 1,
+      reusedHashCount: 0,
+    });
+
+    expect(database.getVideoMetadata(contentHash)).toEqual({
+      contentHash,
+      current: null,
+      revisions: [],
+    });
+
+    const firstSaved = database.saveVideoMetadata(contentHash, {
+      sourceCaption: 'Original caption',
+      sourceUrl: 'https://www.instagram.com/reel/example/',
+    });
+
+    expect(firstSaved.current).toMatchObject({
+      sourceCaption: 'Original caption',
+      sourceUrl: 'https://www.instagram.com/reel/example/',
+      updatedAt: expect.any(String),
+    });
+    expect(firstSaved.revisions).toEqual([
+      expect.objectContaining({
+        id: expect.any(Number),
+        sourceCaption: 'Original caption',
+        sourceUrl: 'https://www.instagram.com/reel/example/',
+        createdAt: expect.any(String),
+      }),
+    ]);
+    expect(database.getLibraryVideos(24, 0)[0]).toMatchObject({
+      metadataRegistered: true,
+      metadataUpdatedAt: expect.any(String),
+    });
+
+    const unchanged = database.saveVideoMetadata(contentHash, {
+      sourceCaption: 'Original caption',
+      sourceUrl: 'https://www.instagram.com/reel/example/',
+    });
+    expect(unchanged.revisions).toHaveLength(1);
+
+    const changed = database.saveVideoMetadata(contentHash, {
+      sourceCaption: 'Corrected caption',
+      sourceUrl: 'https://www.instagram.com/reel/example/',
+    });
+    expect(changed.current).toMatchObject({ sourceCaption: 'Corrected caption' });
+    expect(changed.revisions).toHaveLength(2);
+    expect(changed.revisions.map((revision) => revision.sourceCaption)).toEqual([
+      'Corrected caption',
+      'Original caption',
+    ]);
+    database.close();
+
+    const reopenedDatabase = new AppDatabase(databasePath);
+    expect(reopenedDatabase.getVideoMetadata(contentHash)).toMatchObject({
+      current: { sourceCaption: 'Corrected caption' },
+      revisions: [{ sourceCaption: 'Corrected caption' }, { sourceCaption: 'Original caption' }],
+    });
+    reopenedDatabase.close();
+  });
+
+  it('keeps metadata linked by content hash when the file location changes', () => {
+    const database = new AppDatabase(createDatabasePath());
+    const contentHash = 'a'.repeat(64);
+    database.setLibraryRoot('/videos');
+    database.syncVideoFiles([scannedVideo('old-name.mp4', contentHash)], {
+      hashedFileCount: 1,
+      reusedHashCount: 0,
+    });
+    database.saveVideoMetadata(contentHash, {
+      sourceCaption: null,
+      sourceUrl: 'https://www.tiktok.com/@example/video/1',
+    });
+
+    database.syncVideoFiles([scannedVideo('renamed/new-name.mp4', contentHash)], {
+      hashedFileCount: 1,
+      reusedHashCount: 0,
+    });
+
+    expect(database.getVideoMetadata(contentHash).current).toMatchObject({
+      sourceUrl: 'https://www.tiktok.com/@example/video/1',
+    });
+    expect(database.getLibraryVideos(24, 0)[0]).toMatchObject({
+      fileName: 'new-name.mp4',
+      metadataRegistered: true,
+      relativePath: 'renamed/new-name.mp4',
+    });
+    database.close();
+  });
+
+  it('rejects metadata for a video that is not in the library database', () => {
+    const database = new AppDatabase(createDatabasePath());
+
+    expect(() =>
+      database.saveVideoMetadata('a'.repeat(64), {
+        sourceCaption: 'Caption',
+        sourceUrl: null,
+      }),
+    ).toThrow('Video not found.');
+    expect(() => database.getVideoMetadata('a'.repeat(64))).toThrow('Video not found.');
     database.close();
   });
 });

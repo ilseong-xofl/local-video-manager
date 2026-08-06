@@ -2,8 +2,13 @@ export const IPC_CHANNELS = {
   getBootstrapState: 'app:get-bootstrap-state',
   chooseLibraryRoot: 'library:choose-root',
   getLibraryVideoPage: 'library:get-video-page',
+  getVideoMetadata: 'library:get-video-metadata',
+  saveVideoMetadata: 'library:save-video-metadata',
   scanLibrary: 'library:scan',
 } as const;
+
+export const VIDEO_SOURCE_URL_MAX_LENGTH = 2_048;
+export const VIDEO_SOURCE_CAPTION_MAX_LENGTH = 50_000;
 
 export interface LibraryStats {
   fileCount: number;
@@ -22,6 +27,8 @@ export interface VideoScanSummary extends LibraryStats {
 export interface LibraryVideo {
   contentHash: string;
   fileName: string;
+  metadataRegistered: boolean;
+  metadataUpdatedAt: string | null;
   relativePath: string;
   sizeBytes: number;
 }
@@ -59,9 +66,31 @@ export interface ScanLibraryResult {
   summary: VideoScanSummary;
 }
 
+export interface VideoMetadataInput {
+  sourceCaption: string | null;
+  sourceUrl: string | null;
+}
+
+export interface VideoMetadataSnapshot extends VideoMetadataInput {
+  updatedAt: string;
+}
+
+export interface VideoMetadataRevision extends VideoMetadataInput {
+  createdAt: string;
+  id: number;
+}
+
+export interface VideoMetadataDetail {
+  contentHash: string;
+  current: VideoMetadataSnapshot | null;
+  revisions: VideoMetadataRevision[];
+}
+
 export interface LocalVideoManagerApi {
   getBootstrapState(): Promise<BootstrapState>;
   chooseLibraryRoot(): Promise<ChooseLibraryRootResult>;
   getLibraryVideoPage(pageIndex: number): Promise<LibraryVideoPage>;
+  getVideoMetadata(contentHash: string): Promise<VideoMetadataDetail>;
+  saveVideoMetadata(contentHash: string, input: VideoMetadataInput): Promise<VideoMetadataDetail>;
   scanLibrary(): Promise<ScanLibraryResult>;
 }
