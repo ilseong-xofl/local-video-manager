@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { statSync } from 'node:fs';
 
 import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions } from 'electron';
 
@@ -6,8 +6,22 @@ import {
   IPC_CHANNELS,
   type BootstrapState,
   type ChooseLibraryRootResult,
+  type ScanLibraryResult,
 } from '../shared/contracts';
 import type { AppDatabase } from './database';
+import { scanVideoDirectory } from './video-scanner';
+
+function isDirectoryAvailable(directoryPath: string | null): boolean {
+  if (!directoryPath) {
+    return false;
+  }
+
+  try {
+    return statSync(directoryPath).isDirectory();
+  } catch {
+    return false;
+  }
+}
 
 function buildBootstrapState(database: AppDatabase): BootstrapState {
   const libraryRoot = database.getLibraryRoot();
@@ -16,7 +30,8 @@ function buildBootstrapState(database: AppDatabase): BootstrapState {
     appVersion: app.getVersion(),
     libraryId: database.getOrCreateLibraryId(),
     libraryRoot,
-    libraryRootAvailable: libraryRoot ? existsSync(libraryRoot) : false,
+    libraryRootAvailable: isDirectoryAvailable(libraryRoot),
+    libraryStats: database.getLibraryStats(),
     platform: process.platform,
   };
 }
@@ -51,8 +66,24 @@ export function registerIpcHandlers(database: AppDatabase): () => void {
     };
   });
 
+  ipcMain.handle(IPC_CHANNELS.scanLibrary, async (): Promise<ScanLibraryResult> => {
+    const libraryRoot = database.getLibraryRoot();
+    if (!isDirectoryAvailable(libraryRoot) || !libraryRoot) {
+      throw new Error('The selected library folder is not available.');
+    }
+
+    const scan = await scanVideoDirectory(libraryRoot, database.getVideoFileCache());
+    const summary = database.syncVideoFiles(scan.files, scan);
+
+    return {
+      state: buildBootstrapState(database),
+      summary,
+    };
+  });
+
   return () => {
     ipcMain.removeHandler(IPC_CHANNELS.getBootstrapState);
     ipcMain.removeHandler(IPC_CHANNELS.chooseLibraryRoot);
+    ipcMain.removeHandler(IPC_CHANNELS.scanLibrary);
   };
 }

@@ -1,11 +1,17 @@
 import { useEffect, useState } from 'react';
 
-import type { BootstrapState } from '../shared/contracts';
+import type { BootstrapState, VideoScanSummary } from '../shared/contracts';
+
+function formatScanTime(value: string | null): string {
+  return value ? new Date(value).toLocaleString('ko-KR') : '아직 불러오지 않았습니다.';
+}
 
 export function App() {
   const [state, setState] = useState<BootstrapState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [choosingFolder, setChoosingFolder] = useState(false);
+  const [scanningFolder, setScanningFolder] = useState(false);
+  const [scanSummary, setScanSummary] = useState<VideoScanSummary | null>(null);
 
   useEffect(() => {
     void window.localVideoManager
@@ -21,10 +27,28 @@ export function App() {
     try {
       const result = await window.localVideoManager.chooseLibraryRoot();
       setState(result.state);
+      if (!result.cancelled) {
+        setScanSummary(null);
+      }
     } catch {
       setError('영상 폴더를 저장하지 못했습니다.');
     } finally {
       setChoosingFolder(false);
+    }
+  }
+
+  async function scanFolder() {
+    setScanningFolder(true);
+    setError(null);
+
+    try {
+      const result = await window.localVideoManager.scanLibrary();
+      setState(result.state);
+      setScanSummary(result.summary);
+    } catch {
+      setError('영상 폴더를 불러오지 못했습니다. 폴더 접근 권한과 파일 상태를 확인하세요.');
+    } finally {
+      setScanningFolder(false);
     }
   }
 
@@ -45,7 +69,11 @@ export function App() {
           <h2 id="library-heading">관리할 영상 폴더를 선택하세요</h2>
           <p>영상 원본은 이 컴퓨터에 그대로 유지됩니다. 앱은 선택한 폴더의 파일만 읽습니다.</p>
         </div>
-        <button className="primary-button" onClick={chooseFolder} disabled={choosingFolder}>
+        <button
+          className="primary-button"
+          onClick={chooseFolder}
+          disabled={choosingFolder || scanningFolder}
+        >
           {choosingFolder ? '선택 중…' : state?.libraryRoot ? '폴더 변경' : '영상 폴더 선택'}
         </button>
       </section>
@@ -61,6 +89,11 @@ export function App() {
           <span className={state?.libraryRootAvailable ? 'status-ok' : 'status-muted'}>
             {state?.libraryRootAvailable ? '폴더 접근 가능' : '폴더 선택 필요'}
           </span>
+          <span className="status-muted">
+            {state
+              ? `${state.libraryStats.fileCount}개 파일 · ${state.libraryStats.uniqueVideoCount}개 고유 영상`
+              : '영상 수 확인 중…'}
+          </span>
         </article>
         <article className="status-card">
           <span className="status-label">라이브러리 ID</span>
@@ -75,11 +108,30 @@ export function App() {
       </section>
 
       <section className="next-section">
-        <div>
-          <span className="status-dot" />
-          <strong>기본 셋팅 완료 후 다음 구현</strong>
+        <div className="next-section-row">
+          <div className="next-section-heading">
+            <span className="status-dot" />
+            <strong>선택 폴더 영상 불러오기</strong>
+          </div>
+          <button
+            className="primary-button"
+            onClick={scanFolder}
+            disabled={!state?.libraryRootAvailable || scanningFolder || choosingFolder}
+          >
+            {scanningFolder ? '불러오는 중…' : '영상 불러오기'}
+          </button>
         </div>
-        <p>선택 폴더 스캔 → SHA-256 식별 → 썸네일 그리드 순서로 연결됩니다.</p>
+        <p>
+          하위 폴더까지 탐색해 영상 파일을 SHA-256으로 식별합니다. 마지막 불러오기:{' '}
+          {formatScanTime(state?.libraryStats.lastScannedAt ?? null)}
+        </p>
+        {scanSummary ? (
+          <p className="scan-result" role="status">
+            총 {scanSummary.fileCount}개 파일 · 고유 영상 {scanSummary.uniqueVideoCount}개 · 새 영상{' '}
+            {scanSummary.addedVideoCount}개 · 중복 파일 {scanSummary.duplicateFileCount}개 · 제거된
+            파일 {scanSummary.removedFileCount}개 · 해시 재사용 {scanSummary.reusedHashCount}개
+          </p>
+        ) : null}
       </section>
     </main>
   );

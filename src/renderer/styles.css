@@ -208,14 +208,33 @@ h2 {
   border-top: 1px solid #dfe3e8;
 }
 
-.next-section div {
+.next-section-row,
+.next-section-heading {
   display: flex;
   align-items: center;
+}
+
+.next-section-row {
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.next-section-heading {
   gap: 9px;
 }
 
 .next-section p {
   margin: 8px 0 0 17px;
+}
+
+.next-section .scan-result {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #edf6f1;
+  color: #236f4c;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .status-dot {
@@ -233,7 +252,8 @@ h2 {
   }
 
   .setup-card,
-  .app-header {
+  .app-header,
+  .next-section-row {
     align-items: stretch;
     flex-direction: column;
   }
