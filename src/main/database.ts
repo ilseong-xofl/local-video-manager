@@ -128,6 +128,26 @@ export class AppDatabase {
       .all(limit, offset) as LibraryVideo[];
   }
 
+  public getLibraryVideoByHash(contentHash: string): LibraryVideo | null {
+    return (
+      (this.database
+        .prepare(
+          `
+            SELECT
+              content_hash AS contentHash,
+              file_name AS fileName,
+              relative_path AS relativePath,
+              size_bytes AS sizeBytes
+            FROM video_files
+            WHERE content_hash = ?
+            ORDER BY relative_path COLLATE NOCASE, relative_path
+            LIMIT 1
+          `,
+        )
+        .get(contentHash) as LibraryVideo | undefined) ?? null
+    );
+  }
+
   public syncVideoFiles(
     files: readonly ScannedVideoFile[],
     scanCounts: Pick<VideoScanSummary, 'hashedFileCount' | 'reusedHashCount'>,

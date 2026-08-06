@@ -3,6 +3,7 @@ import { stat } from 'node:fs/promises';
 import type { LibraryVideoItem, LibraryVideoPage } from '../shared/contracts';
 import type { AppDatabase } from './database';
 import { resolveLibraryFilePath, type ThumbnailCache } from './thumbnail-cache';
+import { buildVideoPlaybackUrl } from './video-playback';
 
 const VIDEO_PAGE_SIZE = 24;
 
@@ -46,7 +47,12 @@ export async function getLibraryVideoPage(
       }
     }
 
-    items.push({ ...video, fileAvailable, thumbnailDataUrl });
+    items.push({
+      ...video,
+      fileAvailable,
+      playbackUrl: fileAvailable ? buildVideoPlaybackUrl(video.contentHash) : null,
+      thumbnailDataUrl,
+    });
   }
 
   return {

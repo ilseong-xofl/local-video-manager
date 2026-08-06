@@ -1,15 +1,25 @@
 import { join } from 'node:path';
 
-import { app, BrowserWindow, nativeImage } from 'electron';
+import { app, BrowserWindow, nativeImage, protocol } from 'electron';
 import squirrelStartup from 'electron-squirrel-startup';
 
 import { AppDatabase } from './database';
 import { registerIpcHandlers } from './ipc';
 import { ThumbnailCache } from './thumbnail-cache';
 import { configureAutoUpdates } from './updates';
+import { VIDEO_PROTOCOL_SCHEME } from './video-playback';
+import { registerVideoProtocol } from './video-protocol';
 
 let database: AppDatabase | null = null;
 let removeIpcHandlers: (() => void) | null = null;
+let removeVideoProtocol: (() => void) | null = null;
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: VIDEO_PROTOCOL_SCHEME,
+    privileges: { secure: true, standard: true, stream: true },
+  },
+]);
 
 async function createSystemThumbnail(videoPath: string): Promise<Buffer | null> {
   const image = await nativeImage.createThumbnailFromPath(videoPath, { width: 480, height: 270 });
@@ -61,6 +71,7 @@ if (squirrelStartup) {
       join(userDataPath, 'thumbnails'),
       createSystemThumbnail,
     );
+    removeVideoProtocol = registerVideoProtocol(database);
     removeIpcHandlers = registerIpcHandlers(database, thumbnailCache);
     createWindow();
 
@@ -82,6 +93,8 @@ if (squirrelStartup) {
   app.on('before-quit', () => {
     removeIpcHandlers?.();
     removeIpcHandlers = null;
+    removeVideoProtocol?.();
+    removeVideoProtocol = null;
     database?.close();
     database = null;
   });

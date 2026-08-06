@@ -60,6 +60,7 @@ describe('getLibraryVideoPage', () => {
       contentHash: 'a'.repeat(64),
       fileAvailable: true,
       fileName: 'first.mp4',
+      playbackUrl: `local-video://media/${'a'.repeat(64)}`,
       relativePath: 'first.mp4',
       thumbnailDataUrl: expect.stringMatching(/^data:image\/jpeg;base64,/),
     });
@@ -83,7 +84,11 @@ describe('getLibraryVideoPage', () => {
 
     const page = await getLibraryVideoPage(database, thumbnailCache, 0);
 
-    expect(page.items[0]).toMatchObject({ fileAvailable: false, thumbnailDataUrl: null });
+    expect(page.items[0]).toMatchObject({
+      fileAvailable: false,
+      playbackUrl: null,
+      thumbnailDataUrl: null,
+    });
     expect(createThumbnail).not.toHaveBeenCalled();
     database.close();
   });

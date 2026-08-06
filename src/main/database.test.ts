@@ -149,4 +149,23 @@ describe('AppDatabase', () => {
     ]);
     database.close();
   });
+
+  it('returns one deterministic file location by content hash', () => {
+    const database = new AppDatabase(createDatabasePath());
+    const contentHash = 'a'.repeat(64);
+    database.setLibraryRoot('/videos');
+    database.syncVideoFiles(
+      [scannedVideo('nested/duplicate.mp4', contentHash), scannedVideo('first.mp4', contentHash)],
+      { hashedFileCount: 2, reusedHashCount: 0 },
+    );
+
+    expect(database.getLibraryVideoByHash(contentHash)).toEqual({
+      contentHash,
+      fileName: 'first.mp4',
+      relativePath: 'first.mp4',
+      sizeBytes: 10,
+    });
+    expect(database.getLibraryVideoByHash('b'.repeat(64))).toBeNull();
+    database.close();
+  });
 });

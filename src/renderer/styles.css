@@ -305,8 +305,26 @@ h2 {
 .thumbnail-frame {
   position: relative;
   overflow: hidden;
+  width: 100%;
   aspect-ratio: 16 / 9;
   background: #e7eaf0;
+}
+
+.thumbnail-button {
+  display: block;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+}
+
+.thumbnail-button:disabled {
+  cursor: not-allowed;
+}
+
+.thumbnail-button:focus-visible {
+  outline: 3px solid #4d73c8;
+  outline-offset: -3px;
 }
 
 .thumbnail-frame img {
@@ -325,6 +343,40 @@ h2 {
   color: #7f8996;
   font-size: 12px;
   font-weight: 750;
+}
+
+.play-indicator {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 48px;
+  height: 48px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 50%;
+  background: rgba(16, 24, 38, 0.72);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24);
+  transform: translate(-50%, -50%);
+  transition:
+    background 150ms ease,
+    transform 150ms ease;
+}
+
+.play-indicator::after {
+  position: absolute;
+  top: 50%;
+  left: 52%;
+  width: 0;
+  height: 0;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  border-left: 12px solid white;
+  content: '';
+  transform: translate(-40%, -50%);
+}
+
+.thumbnail-button:hover:not(:disabled) .play-indicator {
+  background: rgba(38, 63, 119, 0.9);
+  transform: translate(-50%, -50%) scale(1.06);
 }
 
 .file-status {
@@ -403,6 +455,105 @@ h2 {
   opacity: 0.45;
 }
 
+.player-backdrop {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  overflow-y: auto;
+  padding: 32px;
+  place-items: center;
+  background: rgba(13, 18, 27, 0.82);
+  backdrop-filter: blur(8px);
+}
+
+.player-modal {
+  width: min(960px, 100%);
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 20px;
+  background: #111722;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.46);
+}
+
+.player-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 18px 20px;
+  color: white;
+}
+
+.player-header > div {
+  min-width: 0;
+}
+
+.player-header .eyebrow {
+  margin-bottom: 5px;
+  color: #9db7f3;
+}
+
+.player-header h2 {
+  overflow: hidden;
+  margin-bottom: 0;
+  font-size: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.player-close-button {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  padding: 0 0 3px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: white;
+  cursor: pointer;
+  font-size: 28px;
+  line-height: 1;
+  place-items: center;
+}
+
+.player-close-button:hover,
+.player-close-button:focus-visible {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.player-stage {
+  position: relative;
+  display: grid;
+  min-height: 240px;
+  background: black;
+  place-items: center;
+}
+
+.player-stage video {
+  display: block;
+  width: 100%;
+  max-height: calc(100vh - 180px);
+  aspect-ratio: 16 / 9;
+  background: black;
+  object-fit: contain;
+}
+
+.player-error {
+  position: absolute;
+  right: 20px;
+  bottom: 20px;
+  left: 20px;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(133, 39, 39, 0.92);
+  color: white;
+  font-size: 13px;
+  text-align: center;
+}
+
 @media (max-width: 760px) {
   .app-shell {
     width: min(100% - 32px, 1080px);
@@ -423,5 +574,9 @@ h2 {
 
   .status-card-wide {
     grid-row: auto;
+  }
+
+  .player-backdrop {
+    padding: 16px;
   }
 }

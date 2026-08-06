@@ -28,6 +28,7 @@ export interface LibraryVideo {
 
 export interface LibraryVideoItem extends LibraryVideo {
   fileAvailable: boolean;
+  playbackUrl: string | null;
   thumbnailDataUrl: string | null;
 }
 

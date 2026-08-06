@@ -13,10 +13,11 @@
 - SHA-256 영상 식별과 변경되지 않은 파일의 hash cache
 - 운영체제 영상 preview 기반 JPEG 썸네일 cache
 - 고유 영상 24개 단위 페이지 그리드
+- 해시 기반 local byte-range streaming 영상 재생 모달
 - 공개 GitHub Releases 기반 Squirrel.Windows 자동 업데이트
 - Mac/Windows 품질 검사와 Windows 패키징 CI
 
-Auth, 영상 재생, DB 백업·복원, 중앙 API와 Gemini는 아직 구현하지 않았습니다. 현재 범위의 기준은 [제품 범위](docs/product-scope.md)에 있습니다.
+Auth, DB 백업·복원, 중앙 API와 Gemini는 아직 구현하지 않았습니다. 현재 범위의 기준은 [제품 범위](docs/product-scope.md)에 있습니다.
 
 ## 개발 시작
 

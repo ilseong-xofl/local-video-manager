@@ -1,6 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
-import type { BootstrapState, LibraryVideoPage, VideoScanSummary } from '../shared/contracts';
+import type {
+  BootstrapState,
+  LibraryVideoItem,
+  LibraryVideoPage,
+  VideoScanSummary,
+} from '../shared/contracts';
 
 function formatScanTime(value: string | null): string {
   return value ? new Date(value).toLocaleString('ko-KR') : '아직 불러오지 않았습니다.';
@@ -22,6 +27,9 @@ export function App() {
   const [scanSummary, setScanSummary] = useState<VideoScanSummary | null>(null);
   const [videoPage, setVideoPage] = useState<LibraryVideoPage | null>(null);
   const [loadingVideos, setLoadingVideos] = useState(false);
+  const [playingVideo, setPlayingVideo] = useState<LibraryVideoItem | null>(null);
+  const [playbackError, setPlaybackError] = useState(false);
+  const videoElementRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
     void window.localVideoManager
@@ -34,6 +42,27 @@ export function App() {
       })
       .catch(() => setError('앱 초기 정보를 불러오지 못했습니다.'));
   }, []);
+
+  useEffect(() => {
+    if (!playingVideo) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closePlayer();
+      }
+    };
+
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [playingVideo]);
 
   async function loadVideoPage(pageIndex: number) {
     setLoadingVideos(true);
@@ -83,6 +112,27 @@ export function App() {
     } finally {
       setScanningFolder(false);
     }
+  }
+
+  function openPlayer(video: LibraryVideoItem) {
+    if (!video.playbackUrl) {
+      return;
+    }
+
+    setPlaybackError(false);
+    setPlayingVideo(video);
+  }
+
+  function closePlayer() {
+    const videoElement = videoElementRef.current;
+    if (videoElement) {
+      videoElement.pause();
+      videoElement.removeAttribute('src');
+      videoElement.load();
+    }
+
+    setPlayingVideo(null);
+    setPlaybackError(false);
   }
 
   return (
@@ -189,7 +239,13 @@ export function App() {
             <div className={loadingVideos ? 'video-grid video-grid-loading' : 'video-grid'}>
               {videoPage.items.map((video) => (
                 <article className="video-card" key={video.contentHash}>
-                  <div className="thumbnail-frame">
+                  <button
+                    className="thumbnail-frame thumbnail-button"
+                    type="button"
+                    onClick={() => openPlayer(video)}
+                    disabled={!video.playbackUrl}
+                    aria-label={`${video.fileName} 재생`}
+                  >
                     {video.thumbnailDataUrl ? (
                       <img
                         src={video.thumbnailDataUrl}
@@ -201,10 +257,13 @@ export function App() {
                         <span>미리보기 없음</span>
                       </div>
                     )}
+                    {video.playbackUrl ? (
+                      <span className="play-indicator" aria-hidden="true" />
+                    ) : null}
                     <span className={video.fileAvailable ? 'file-status available' : 'file-status'}>
                       {video.fileAvailable ? '파일 확인됨' : '파일 없음'}
                     </span>
-                  </div>
+                  </button>
                   <div className="video-card-copy">
                     <strong className="video-file-name" title={video.fileName}>
                       {video.fileName}
@@ -246,6 +305,59 @@ export function App() {
             </nav>
           ) : null}
         </section>
+      ) : null}
+
+      {playingVideo?.playbackUrl ? (
+        <div
+          className="player-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closePlayer();
+            }
+          }}
+        >
+          <section
+            className="player-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="player-title"
+          >
+            <header className="player-header">
+              <div>
+                <p className="eyebrow">VIDEO PREVIEW</p>
+                <h2 id="player-title" title={playingVideo.fileName}>
+                  {playingVideo.fileName}
+                </h2>
+              </div>
+              <button
+                className="player-close-button"
+                type="button"
+                onClick={closePlayer}
+                aria-label="영상 닫기"
+                autoFocus
+              >
+                ×
+              </button>
+            </header>
+            <div className="player-stage">
+              <video
+                ref={videoElementRef}
+                src={playingVideo.playbackUrl}
+                poster={playingVideo.thumbnailDataUrl ?? undefined}
+                controls
+                autoPlay
+                playsInline
+                preload="metadata"
+                onError={() => setPlaybackError(true)}
+              />
+              {playbackError ? (
+                <p className="player-error" role="alert">
+                  이 영상은 현재 재생할 수 없습니다. 파일 형식이나 코덱을 확인하세요.
+                </p>
+              ) : null}
+            </div>
+          </section>
+        </div>
       ) : null}
     </main>
   );
