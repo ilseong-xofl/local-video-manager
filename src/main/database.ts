@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync, unlinkSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
 import Database from 'better-sqlite3';
@@ -22,6 +22,8 @@ const ACTIVE_MANAGED_FOLDER_ID_KEY = 'active_managed_folder_id';
 const LEGACY_LIBRARY_ROOT_KEY = 'library_root';
 const LEGACY_LAST_SCANNED_AT_KEY = 'last_scanned_at';
 const METADATA_SEARCH_LIMIT = 50;
+const DATABASE_APPLICATION_ID = 0x4c564d31;
+const DATABASE_SCHEMA_VERSION = 1;
 const ALL_LIBRARY_VIDEOS_QUERY: LibraryVideoQuery = {
   dateFromMs: 0,
   dateToMs: Date.parse('9999-12-31T23:59:59.999Z'),
@@ -84,6 +86,11 @@ interface VideoExistsRow {
   found: number;
 }
 
+interface BackupManifestRow {
+  appVersion: string;
+  schemaVersion: number;
+}
+
 type MetadataSearchRecord = Omit<VideoMetadataSearchResult, 'thumbnailDataUrl'>;
 
 function normalizeLibraryRoot(rootPath: string): { normalizedPath: string; rootPath: string } {
@@ -96,6 +103,120 @@ function normalizeLibraryRoot(rootPath: string): { normalizedPath: string; rootP
 
 function normalizeSearchText(value: string): string {
   return value.normalize('NFC').toLowerCase();
+}
+
+function databasePathsMatch(firstPath: string, secondPath: string): boolean {
+  const first = resolve(firstPath);
+  const second = resolve(secondPath);
+  return process.platform === 'win32'
+    ? first.toLowerCase() === second.toLowerCase()
+    : first === second;
+}
+
+function removeExactFileIfPresent(filePath: string): void {
+  if (existsSync(filePath)) {
+    unlinkSync(filePath);
+  }
+}
+
+function prepareBackupDestination(filePath: string): void {
+  mkdirSync(dirname(filePath), { recursive: true });
+  removeExactFileIfPresent(filePath);
+  removeExactFileIfPresent(`${filePath}-shm`);
+  removeExactFileIfPresent(`${filePath}-wal`);
+}
+
+function validateBackupDatabase(filePath: string): void {
+  let backupDatabase: Database.Database | null = null;
+
+  try {
+    backupDatabase = new Database(filePath, { fileMustExist: true, readonly: true });
+    const applicationId = backupDatabase.pragma('application_id', { simple: true }) as number;
+    const schemaVersion = backupDatabase.pragma('user_version', { simple: true }) as number;
+    const integrity = backupDatabase.pragma('integrity_check', { simple: true }) as string;
+    const foreignKeyErrors = backupDatabase.pragma('foreign_key_check') as unknown[];
+    const manifest = backupDatabase
+      .prepare(
+        `
+          SELECT
+            app_version AS appVersion,
+            schema_version AS schemaVersion
+          FROM backup_manifest
+          WHERE id = 1
+        `,
+      )
+      .get() as BackupManifestRow | undefined;
+
+    if (
+      applicationId !== DATABASE_APPLICATION_ID ||
+      schemaVersion < 1 ||
+      schemaVersion > DATABASE_SCHEMA_VERSION ||
+      integrity !== 'ok' ||
+      foreignKeyErrors.length > 0 ||
+      !manifest?.appVersion ||
+      manifest.schemaVersion !== schemaVersion
+    ) {
+      throw new Error('Invalid Local Video Manager database backup.');
+    }
+  } catch {
+    throw new Error('Invalid Local Video Manager database backup.');
+  } finally {
+    backupDatabase?.close();
+  }
+}
+
+export function applyPendingDatabaseRestore(
+  databasePath: string,
+  pendingRestorePath: string,
+): boolean {
+  const rollbackPath = `${databasePath}.restore-rollback`;
+
+  if (existsSync(rollbackPath)) {
+    if (existsSync(databasePath)) {
+      try {
+        validateBackupDatabase(databasePath);
+        removeExactFileIfPresent(rollbackPath);
+        removeExactFileIfPresent(pendingRestorePath);
+        return true;
+      } catch {
+        removeExactFileIfPresent(databasePath);
+      }
+    }
+
+    renameSync(rollbackPath, databasePath);
+  }
+
+  if (!existsSync(pendingRestorePath)) {
+    return false;
+  }
+
+  try {
+    validateBackupDatabase(pendingRestorePath);
+  } catch (error) {
+    removeExactFileIfPresent(pendingRestorePath);
+    throw error;
+  }
+  let currentDatabaseMoved = false;
+
+  try {
+    if (existsSync(databasePath)) {
+      renameSync(databasePath, rollbackPath);
+      currentDatabaseMoved = true;
+    }
+    removeExactFileIfPresent(`${databasePath}-shm`);
+    removeExactFileIfPresent(`${databasePath}-wal`);
+    renameSync(pendingRestorePath, databasePath);
+    validateBackupDatabase(databasePath);
+    removeExactFileIfPresent(rollbackPath);
+    return true;
+  } catch (error) {
+    removeExactFileIfPresent(databasePath);
+    if (currentDatabaseMoved && existsSync(rollbackPath)) {
+      renameSync(rollbackPath, databasePath);
+    }
+    removeExactFileIfPresent(pendingRestorePath);
+    throw error;
+  }
 }
 
 function getLibraryVideoQueryParts(query: LibraryVideoQuery): {
@@ -121,10 +242,12 @@ function getLibraryVideoQueryParts(query: LibraryVideoQuery): {
 
 export class AppDatabase {
   private readonly database: Database.Database;
+  private readonly databasePath: string;
 
   public constructor(databasePath: string) {
     mkdirSync(dirname(databasePath), { recursive: true });
-    this.database = new Database(databasePath);
+    this.databasePath = resolve(databasePath);
+    this.database = new Database(this.databasePath);
     this.database.pragma('journal_mode = WAL');
     this.database.pragma('foreign_keys = ON');
     this.database.function('normalize_search_text', { deterministic: true }, (value: unknown) =>
@@ -654,7 +777,90 @@ export class AppDatabase {
     this.database.close();
   }
 
+  public async createBackup(destinationPath: string, appVersion: string): Promise<void> {
+    const resolvedDestination = resolve(destinationPath);
+    if (databasePathsMatch(this.databasePath, resolvedDestination)) {
+      throw new Error('The active database cannot be used as its own backup destination.');
+    }
+
+    const temporaryDestination = `${resolvedDestination}.${randomUUID()}.tmp`;
+    prepareBackupDestination(temporaryDestination);
+    try {
+      await this.database.backup(temporaryDestination);
+
+      const backupDatabase = new Database(temporaryDestination);
+      try {
+        backupDatabase
+          .prepare(
+            `
+              INSERT INTO backup_manifest (
+                id,
+                app_version,
+                schema_version,
+                created_at
+              ) VALUES (1, ?, ?, ?)
+              ON CONFLICT(id) DO UPDATE SET
+                app_version = excluded.app_version,
+                schema_version = excluded.schema_version,
+                created_at = excluded.created_at
+            `,
+          )
+          .run(appVersion, DATABASE_SCHEMA_VERSION, new Date().toISOString());
+      } finally {
+        backupDatabase.close();
+      }
+
+      validateBackupDatabase(temporaryDestination);
+      removeExactFileIfPresent(`${resolvedDestination}-shm`);
+      removeExactFileIfPresent(`${resolvedDestination}-wal`);
+      renameSync(temporaryDestination, resolvedDestination);
+    } catch (error) {
+      removeExactFileIfPresent(temporaryDestination);
+      throw error;
+    } finally {
+      removeExactFileIfPresent(`${temporaryDestination}-shm`);
+      removeExactFileIfPresent(`${temporaryDestination}-wal`);
+    }
+  }
+
+  public async stageBackupRestore(
+    sourcePath: string,
+    pendingRestorePath: string,
+    automaticBackupPath: string,
+    appVersion: string,
+  ): Promise<void> {
+    const resolvedSource = resolve(sourcePath);
+    const resolvedPending = resolve(pendingRestorePath);
+    const resolvedAutomaticBackup = resolve(automaticBackupPath);
+    if (
+      databasePathsMatch(this.databasePath, resolvedSource) ||
+      databasePathsMatch(this.databasePath, resolvedPending) ||
+      databasePathsMatch(this.databasePath, resolvedAutomaticBackup) ||
+      databasePathsMatch(resolvedSource, resolvedPending)
+    ) {
+      throw new Error('Invalid database restore path.');
+    }
+
+    validateBackupDatabase(resolvedSource);
+    await this.createBackup(resolvedAutomaticBackup, appVersion);
+    prepareBackupDestination(resolvedPending);
+
+    const sourceDatabase = new Database(resolvedSource, { fileMustExist: true, readonly: true });
+    try {
+      await sourceDatabase.backup(resolvedPending);
+    } catch (error) {
+      removeExactFileIfPresent(resolvedPending);
+      throw error;
+    } finally {
+      sourceDatabase.close();
+    }
+
+    validateBackupDatabase(resolvedPending);
+    this.database.pragma('wal_checkpoint(TRUNCATE)');
+  }
+
   private migrate(): void {
+    this.database.pragma(`application_id = ${DATABASE_APPLICATION_ID}`);
     this.database.exec(`
       CREATE TABLE IF NOT EXISTS app_settings (
         key TEXT PRIMARY KEY,
@@ -692,6 +898,13 @@ export class AppDatabase {
         created_at TEXT NOT NULL,
         CHECK (source_url IS NOT NULL OR source_caption IS NOT NULL)
       );
+
+      CREATE TABLE IF NOT EXISTS backup_manifest (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        app_version TEXT NOT NULL,
+        schema_version INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+      );
     `);
 
     const legacyRoot = this.getSetting(LEGACY_LIBRARY_ROOT_KEY);
@@ -720,6 +933,7 @@ export class AppDatabase {
     }
     this.deleteSetting(LEGACY_LIBRARY_ROOT_KEY);
     this.deleteSetting(LEGACY_LAST_SCANNED_AT_KEY);
+    this.database.pragma(`user_version = ${DATABASE_SCHEMA_VERSION}`);
   }
 
   private migrateLegacyVideoFiles(managedFolderId: number | null): void {

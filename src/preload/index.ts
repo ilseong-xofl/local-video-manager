@@ -4,6 +4,8 @@ import { IPC_CHANNELS, type LocalVideoManagerApi } from '../shared/contracts';
 
 const api: LocalVideoManagerApi = {
   getBootstrapState: () => ipcRenderer.invoke(IPC_CHANNELS.getBootstrapState),
+  createDatabaseBackup: () => ipcRenderer.invoke(IPC_CHANNELS.createDatabaseBackup),
+  restoreDatabaseBackup: () => ipcRenderer.invoke(IPC_CHANNELS.restoreDatabaseBackup),
   chooseLibraryRoot: () => ipcRenderer.invoke(IPC_CHANNELS.chooseLibraryRoot),
   getLibraryVideoPage: (pageIndex, query) =>
     ipcRenderer.invoke(IPC_CHANNELS.getLibraryVideoPage, pageIndex, query),

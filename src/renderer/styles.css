@@ -202,6 +202,52 @@ h2 {
   color: #929ba6;
 }
 
+.database-tools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px 24px;
+  margin-top: 16px;
+  padding: 18px 22px;
+  border: 1px solid #e0e4ea;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.database-tools-copy p {
+  margin: 6px 0 0;
+  color: #7a8492;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.database-tools-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.database-restore-button {
+  border-color: #dcc8c8;
+  color: #8a3d3d;
+}
+
+.database-tools-message,
+.database-tools-error {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding-top: 4px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.database-tools-message {
+  color: #23704d;
+}
+
+.database-tools-error {
+  color: #a83232;
+}
+
 .next-section {
   margin-top: 28px;
   padding: 22px 4px;
@@ -1085,6 +1131,15 @@ h2 {
 
   .status-card-wide {
     grid-row: auto;
+  }
+
+  .database-tools {
+    grid-template-columns: 1fr;
+  }
+
+  .database-tools-actions {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .library-filters {

@@ -1,5 +1,7 @@
 export const IPC_CHANNELS = {
   getBootstrapState: 'app:get-bootstrap-state',
+  createDatabaseBackup: 'database:create-backup',
+  restoreDatabaseBackup: 'database:restore-backup',
   chooseLibraryRoot: 'library:choose-root',
   getLibraryVideoPage: 'library:get-video-page',
   getVideoMetadata: 'library:get-video-metadata',
@@ -78,6 +80,16 @@ export interface ChooseLibraryRootResult {
   state: BootstrapState;
 }
 
+export interface DatabaseBackupResult {
+  cancelled: boolean;
+  filePath: string | null;
+}
+
+export interface DatabaseRestoreResult {
+  automaticBackupPath: string | null;
+  cancelled: boolean;
+}
+
 export interface ScanLibraryResult {
   state: BootstrapState;
   summary: VideoScanSummary;
@@ -114,6 +126,8 @@ export interface VideoMetadataSearchResult extends VideoMetadataInput {
 
 export interface LocalVideoManagerApi {
   getBootstrapState(): Promise<BootstrapState>;
+  createDatabaseBackup(): Promise<DatabaseBackupResult>;
+  restoreDatabaseBackup(): Promise<DatabaseRestoreResult>;
   chooseLibraryRoot(): Promise<ChooseLibraryRootResult>;
   getLibraryVideoPage(pageIndex: number, query: LibraryVideoQuery): Promise<LibraryVideoPage>;
   getVideoMetadata(contentHash: string): Promise<VideoMetadataDetail>;

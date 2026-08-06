@@ -18,10 +18,11 @@
 - 해시 기반 local byte-range streaming 영상 재생 모달
 - 영상별 원본 URL·원본 캡션 등록·수정과 SQLite 변경 이력
 - 현재 목록에 없는 과거 영상 검색과 URL·캡션 복사
+- 무결성·schema 검사와 복원 직전 자동 보존을 포함한 SQLite DB 백업·복원
 - 공개 GitHub Releases 기반 Squirrel.Windows 자동 업데이트
 - Mac/Windows 품질 검사와 Windows 패키징 CI
 
-Auth, DB 백업·복원, 중앙 API와 Gemini는 아직 구현하지 않았습니다. 현재 범위의 기준은 [제품 범위](docs/product-scope.md)에 있습니다.
+Auth와 중앙 API는 아직 구현하지 않았습니다. Gemini 생성은 영상 편집 기능과 함께 Phase 2에서 개발합니다. 현재 범위의 기준은 [제품 범위](docs/product-scope.md)에 있습니다.
 
 ## 개발 시작
 

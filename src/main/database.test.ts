@@ -1,12 +1,12 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { LibraryVideoQuery } from '../shared/contracts';
-import { AppDatabase } from './database';
+import { AppDatabase, applyPendingDatabaseRestore } from './database';
 import type { ScannedVideoFile } from './video-scanner';
 
 const temporaryDirectories: string[] = [];
@@ -58,6 +58,116 @@ describe('AppDatabase', () => {
 
     const reopenedDatabase = new AppDatabase(databasePath);
     expect(reopenedDatabase.getOrCreateLibraryId()).toBe(libraryId);
+    reopenedDatabase.close();
+  });
+
+  it('backs up and restores metadata while preserving the current database automatically', async () => {
+    const databasePath = createDatabasePath();
+    const backupPath = join(dirname(databasePath), 'manual-backup.sqlite');
+    const pendingRestorePath = join(dirname(databasePath), 'pending-restore.sqlite');
+    const automaticBackupPath = join(dirname(databasePath), 'before-restore.sqlite');
+    const contentHash = 'a'.repeat(64);
+    const database = new AppDatabase(databasePath);
+    database.setLibraryRoot('/videos');
+    database.syncVideoFiles([scannedVideo('first.mp4', contentHash)], {
+      hashedFileCount: 1,
+      reusedHashCount: 0,
+    });
+    database.saveVideoMetadata(contentHash, {
+      sourceCaption: '백업 시점 캡션',
+      sourceUrl: 'https://example.com/original',
+    });
+    const libraryId = database.getOrCreateLibraryId();
+
+    await database.createBackup(backupPath, '0.1.1');
+    const backupFile = new Database(backupPath, { readonly: true });
+    expect(
+      backupFile
+        .prepare(
+          'SELECT app_version AS appVersion, schema_version AS schemaVersion FROM backup_manifest',
+        )
+        .get(),
+    ).toEqual({ appVersion: '0.1.1', schemaVersion: 1 });
+    backupFile.close();
+
+    database.saveVideoMetadata(contentHash, {
+      sourceCaption: '복원 직전 캡션',
+      sourceUrl: 'https://example.com/changed',
+    });
+    await database.stageBackupRestore(backupPath, pendingRestorePath, automaticBackupPath, '0.1.1');
+    expect(existsSync(pendingRestorePath)).toBe(true);
+    expect(existsSync(automaticBackupPath)).toBe(true);
+    database.close();
+
+    expect(applyPendingDatabaseRestore(databasePath, pendingRestorePath)).toBe(true);
+    const restoredDatabase = new AppDatabase(databasePath);
+    expect(restoredDatabase.getOrCreateLibraryId()).toBe(libraryId);
+    expect(restoredDatabase.getLibraryRoot()).toBe('/videos');
+    expect(restoredDatabase.getVideoMetadata(contentHash).current).toMatchObject({
+      sourceCaption: '백업 시점 캡션',
+      sourceUrl: 'https://example.com/original',
+    });
+    restoredDatabase.close();
+
+    const automaticBackup = new AppDatabase(automaticBackupPath);
+    expect(automaticBackup.getVideoMetadata(contentHash).current).toMatchObject({
+      sourceCaption: '복원 직전 캡션',
+      sourceUrl: 'https://example.com/changed',
+    });
+    automaticBackup.close();
+  });
+
+  it('rejects an invalid restore file without creating a pending restore', async () => {
+    const databasePath = createDatabasePath();
+    const invalidBackupPath = join(dirname(databasePath), 'invalid.sqlite');
+    const pendingRestorePath = join(dirname(databasePath), 'pending-restore.sqlite');
+    const automaticBackupPath = join(dirname(databasePath), 'before-restore.sqlite');
+    const database = new AppDatabase(databasePath);
+    database.setLibraryRoot('/videos');
+    writeFileSync(invalidBackupPath, 'not a sqlite database');
+
+    await expect(
+      database.stageBackupRestore(
+        invalidBackupPath,
+        pendingRestorePath,
+        automaticBackupPath,
+        '0.1.1',
+      ),
+    ).rejects.toThrow('Invalid Local Video Manager database backup.');
+    expect(database.getLibraryRoot()).toBe('/videos');
+    expect(existsSync(pendingRestorePath)).toBe(false);
+    expect(existsSync(automaticBackupPath)).toBe(false);
+    database.close();
+  });
+
+  it('keeps an existing backup when creating its replacement fails validation', async () => {
+    const databasePath = createDatabasePath();
+    const backupPath = join(dirname(databasePath), 'existing-backup.sqlite');
+    const database = new AppDatabase(databasePath);
+    writeFileSync(backupPath, 'existing backup');
+
+    await expect(database.createBackup(backupPath, '')).rejects.toThrow(
+      'Invalid Local Video Manager database backup.',
+    );
+    expect(readFileSync(backupPath, 'utf8')).toBe('existing backup');
+    database.close();
+  });
+
+  it('keeps the current database when a staged restore file is corrupted', () => {
+    const databasePath = createDatabasePath();
+    const pendingRestorePath = join(dirname(databasePath), 'pending-restore.sqlite');
+    const database = new AppDatabase(databasePath);
+    database.setLibraryRoot('/videos');
+    database.close();
+    writeFileSync(pendingRestorePath, 'corrupted pending restore');
+
+    expect(() => applyPendingDatabaseRestore(databasePath, pendingRestorePath)).toThrow(
+      'Invalid Local Video Manager database backup.',
+    );
+    expect(existsSync(pendingRestorePath)).toBe(false);
+
+    const reopenedDatabase = new AppDatabase(databasePath);
+    expect(reopenedDatabase.getLibraryRoot()).toBe('/videos');
     reopenedDatabase.close();
   });
 

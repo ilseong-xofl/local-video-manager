@@ -1,11 +1,21 @@
 import { statSync } from 'node:fs';
+import { join } from 'node:path';
 
-import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  type OpenDialogOptions,
+  type SaveDialogOptions,
+} from 'electron';
 
 import {
   IPC_CHANNELS,
   type BootstrapState,
   type ChooseLibraryRootResult,
+  type DatabaseBackupResult,
+  type DatabaseRestoreResult,
   type ScanLibraryResult,
 } from '../shared/contracts';
 import type { AppDatabase } from './database';
@@ -44,11 +54,106 @@ function buildBootstrapState(database: AppDatabase): BootstrapState {
   };
 }
 
+function backupFileTimestamp(): string {
+  return new Date().toISOString().replace(/[:.]/g, '-');
+}
+
 export function registerIpcHandlers(
   database: AppDatabase,
   thumbnailCache: ThumbnailCache,
 ): () => void {
   ipcMain.handle(IPC_CHANNELS.getBootstrapState, () => buildBootstrapState(database));
+
+  ipcMain.handle(IPC_CHANNELS.createDatabaseBackup, async (): Promise<DatabaseBackupResult> => {
+    const parentWindow = BrowserWindow.getFocusedWindow();
+    const options: SaveDialogOptions = {
+      title: '데이터베이스 백업 저장',
+      buttonLabel: '백업 저장',
+      defaultPath: join(
+        app.getPath('documents'),
+        `local-video-manager-backup-${backupFileTimestamp()}.sqlite`,
+      ),
+      filters: [{ name: 'Local Video Manager 백업', extensions: ['sqlite'] }],
+    };
+    const result = parentWindow
+      ? await dialog.showSaveDialog(parentWindow, options)
+      : await dialog.showSaveDialog(options);
+
+    if (result.canceled || !result.filePath) {
+      return { cancelled: true, filePath: null };
+    }
+
+    await database.createBackup(result.filePath, app.getVersion());
+    return { cancelled: false, filePath: result.filePath };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.restoreDatabaseBackup, async (): Promise<DatabaseRestoreResult> => {
+    const parentWindow = BrowserWindow.getFocusedWindow();
+    const options: OpenDialogOptions = {
+      title: '데이터베이스 백업 선택',
+      buttonLabel: '백업 선택',
+      filters: [{ name: 'Local Video Manager 백업', extensions: ['sqlite'] }],
+      properties: ['openFile'],
+    };
+    const selected = parentWindow
+      ? await dialog.showOpenDialog(parentWindow, options)
+      : await dialog.showOpenDialog(options);
+    const sourcePath = selected.filePaths[0];
+    if (selected.canceled || !sourcePath) {
+      return { automaticBackupPath: null, cancelled: true };
+    }
+
+    const confirmationOptions = {
+      type: 'warning' as const,
+      title: '데이터베이스 복원',
+      message: '선택한 백업으로 현재 데이터를 복원하시겠습니까?',
+      detail:
+        '현재 DB는 자동으로 별도 보존됩니다. 영상 원본 파일은 변경되지 않으며 복원 후 앱이 재시작됩니다.',
+      buttons: ['취소', '복원'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    };
+    const confirmation = parentWindow
+      ? await dialog.showMessageBox(parentWindow, confirmationOptions)
+      : await dialog.showMessageBox(confirmationOptions);
+    if (confirmation.response !== 1) {
+      return { automaticBackupPath: null, cancelled: true };
+    }
+
+    const userDataPath = app.getPath('userData');
+    const automaticBackupPath = join(
+      userDataPath,
+      'backups',
+      `before-restore-${backupFileTimestamp()}.sqlite`,
+    );
+    const pendingRestorePath = join(userDataPath, 'pending-database-restore.sqlite');
+    await database.stageBackupRestore(
+      sourcePath,
+      pendingRestorePath,
+      automaticBackupPath,
+      app.getVersion(),
+    );
+
+    const completedOptions = {
+      type: 'info' as const,
+      title: '복원 준비 완료',
+      message: '백업 복원을 위해 앱을 재시작합니다.',
+      detail: `복원 직전 DB 보존 위치:\n${automaticBackupPath}`,
+      buttons: ['재시작'],
+      defaultId: 0,
+      noLink: true,
+    };
+    if (parentWindow) {
+      await dialog.showMessageBox(parentWindow, completedOptions);
+    } else {
+      await dialog.showMessageBox(completedOptions);
+    }
+
+    app.relaunch();
+    app.quit();
+    return { automaticBackupPath, cancelled: false };
+  });
 
   ipcMain.handle(IPC_CHANNELS.getLibraryVideoPage, (_event, pageIndex: unknown, query: unknown) =>
     getLibraryVideoPage(database, thumbnailCache, pageIndex, query),
@@ -129,6 +234,8 @@ export function registerIpcHandlers(
 
   return () => {
     ipcMain.removeHandler(IPC_CHANNELS.getBootstrapState);
+    ipcMain.removeHandler(IPC_CHANNELS.createDatabaseBackup);
+    ipcMain.removeHandler(IPC_CHANNELS.restoreDatabaseBackup);
     ipcMain.removeHandler(IPC_CHANNELS.chooseLibraryRoot);
     ipcMain.removeHandler(IPC_CHANNELS.getLibraryVideoPage);
     ipcMain.removeHandler(IPC_CHANNELS.getVideoMetadata);

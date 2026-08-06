@@ -109,6 +109,10 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [choosingFolder, setChoosingFolder] = useState(false);
   const [scanningFolder, setScanningFolder] = useState(false);
+  const [backingUpDatabase, setBackingUpDatabase] = useState(false);
+  const [restoringDatabase, setRestoringDatabase] = useState(false);
+  const [databaseMessage, setDatabaseMessage] = useState<string | null>(null);
+  const [databaseError, setDatabaseError] = useState<string | null>(null);
   const [scanSummary, setScanSummary] = useState<VideoScanSummary | null>(null);
   const [videoPage, setVideoPage] = useState<LibraryVideoPage | null>(null);
   const [loadingVideos, setLoadingVideos] = useState(false);
@@ -150,6 +154,7 @@ export function App() {
   const [metadataSearchError, setMetadataSearchError] = useState<string | null>(null);
   const [copiedFromVideo, setCopiedFromVideo] = useState<VideoMetadataSearchResult | null>(null);
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
+  const databaseBusy = backingUpDatabase || restoringDatabase;
 
   useEffect(() => {
     void window.localVideoManager
@@ -240,6 +245,40 @@ export function App() {
       setError('영상 폴더를 불러오지 못했습니다. 폴더 접근 권한과 파일 상태를 확인하세요.');
     } finally {
       setScanningFolder(false);
+    }
+  }
+
+  async function createDatabaseBackup() {
+    setBackingUpDatabase(true);
+    setDatabaseMessage(null);
+    setDatabaseError(null);
+
+    try {
+      const result = await window.localVideoManager.createDatabaseBackup();
+      if (!result.cancelled && result.filePath) {
+        setDatabaseMessage(`DB 백업을 저장했습니다: ${result.filePath}`);
+      }
+    } catch {
+      setDatabaseError('DB 백업을 만들지 못했습니다. 저장 위치와 파일 권한을 확인하세요.');
+    } finally {
+      setBackingUpDatabase(false);
+    }
+  }
+
+  async function restoreDatabaseBackup() {
+    setRestoringDatabase(true);
+    setDatabaseMessage(null);
+    setDatabaseError(null);
+
+    try {
+      const result = await window.localVideoManager.restoreDatabaseBackup();
+      if (!result.cancelled) {
+        setDatabaseMessage('DB 복원이 준비되었습니다. 앱을 재시작합니다.');
+      }
+    } catch {
+      setDatabaseError('올바른 Local Video Manager 백업 파일인지 확인한 뒤 다시 시도하세요.');
+    } finally {
+      setRestoringDatabase(false);
     }
   }
 
@@ -428,7 +467,7 @@ export function App() {
         <button
           className="primary-button"
           onClick={chooseFolder}
-          disabled={choosingFolder || scanningFolder}
+          disabled={choosingFolder || scanningFolder || databaseBusy}
         >
           {choosingFolder ? '선택 중…' : state?.libraryRoot ? '폴더 변경' : '영상 폴더 선택'}
         </button>
@@ -463,6 +502,44 @@ export function App() {
         </article>
       </section>
 
+      <section className="database-tools" aria-labelledby="database-tools-heading">
+        <div className="database-tools-copy">
+          <strong id="database-tools-heading">DB 백업 및 복원</strong>
+          <p>
+            폴더 설정, 영상 식별 정보, URL, 캡션과 변경 이력을 백업합니다. 영상 원본 파일은 포함되지
+            않습니다.
+          </p>
+        </div>
+        <div className="database-tools-actions">
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => void createDatabaseBackup()}
+            disabled={databaseBusy || choosingFolder || scanningFolder}
+          >
+            {backingUpDatabase ? '백업 중…' : 'DB 백업'}
+          </button>
+          <button
+            className="secondary-button database-restore-button"
+            type="button"
+            onClick={() => void restoreDatabaseBackup()}
+            disabled={databaseBusy || choosingFolder || scanningFolder}
+          >
+            {restoringDatabase ? '복원 준비 중…' : 'DB 복원'}
+          </button>
+        </div>
+        {databaseMessage ? (
+          <p className="database-tools-message" role="status">
+            {databaseMessage}
+          </p>
+        ) : null}
+        {databaseError ? (
+          <p className="database-tools-error" role="alert">
+            {databaseError}
+          </p>
+        ) : null}
+      </section>
+
       <section className="next-section">
         <div className="next-section-row">
           <div className="next-section-heading">
@@ -472,7 +549,9 @@ export function App() {
           <button
             className="primary-button"
             onClick={scanFolder}
-            disabled={!state?.libraryRootAvailable || scanningFolder || choosingFolder}
+            disabled={
+              !state?.libraryRootAvailable || scanningFolder || choosingFolder || databaseBusy
+            }
           >
             {scanningFolder ? '불러오는 중…' : '영상 불러오기'}
           </button>
