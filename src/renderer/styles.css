@@ -1545,8 +1545,9 @@ h2 {
   border: 0;
   outline: none;
   background: transparent;
-  color: #858e9b;
+  color: #626d7d;
   cursor: pointer;
+  font-weight: 750;
 }
 
 .video-location-button:disabled {
@@ -1560,8 +1561,25 @@ h2 {
   gap: 8px;
   padding-top: 3px;
   border-top: 1px solid #f0f1f4;
-  color: #858e9b;
   font-size: 9px;
+}
+
+.video-date {
+  display: inline-flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+.video-date-label {
+  color: #626d7d;
+  font-weight: 800;
+}
+
+.video-date-value {
+  color: #9ba2ad;
+  font-weight: 600;
 }
 
 .metadata-button {

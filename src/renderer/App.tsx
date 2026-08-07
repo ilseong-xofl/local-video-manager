@@ -1146,15 +1146,16 @@ export function App() {
                     }}
                     disabled={loadingVideos}
                   >
-                    <option value="registeredAt-desc">등록일 · 내림차순 (최신순)</option>
-                    <option value="registeredAt-asc">등록일 · 오름차순 (오래된순)</option>
-                    <option value="modifiedAt-desc">수정일 · 내림차순 (최신순)</option>
-                    <option value="modifiedAt-asc">수정일 · 오름차순 (오래된순)</option>
+                    <option value="registeredAt-desc">DB 등록일 · 내림차순 (최신순)</option>
+                    <option value="registeredAt-asc">DB 등록일 · 오름차순 (오래된순)</option>
+                    <option value="modifiedAt-desc">파일 수정일 · 내림차순 (최신순)</option>
+                    <option value="modifiedAt-asc">파일 수정일 · 오름차순 (오래된순)</option>
                   </select>
                 </label>
                 <label className="library-filter-field">
                   <span>
-                    {librarySortOption.startsWith('registeredAt') ? '등록일' : '수정일'} 시작
+                    {librarySortOption.startsWith('registeredAt') ? 'DB 등록일' : '파일 수정일'}{' '}
+                    시작
                   </span>
                   <input
                     type="date"
@@ -1170,7 +1171,8 @@ export function App() {
                 </label>
                 <label className="library-filter-field">
                   <span>
-                    {librarySortOption.startsWith('registeredAt') ? '등록일' : '수정일'} 종료
+                    {librarySortOption.startsWith('registeredAt') ? 'DB 등록일' : '파일 수정일'}{' '}
+                    종료
                   </span>
                   <input
                     type="date"
@@ -1317,8 +1319,18 @@ export function App() {
                           </button>
                         </div>
                         <div className="video-dates">
-                          <span>DB 등록 {formatVideoDate(video.registeredAt)}</span>
-                          <span>수정 {formatVideoDate(video.modifiedAtMs)}</span>
+                          <span className="video-date">
+                            <span className="video-date-label">DB 등록일</span>
+                            <span className="video-date-value">
+                              {formatVideoDate(video.registeredAt)}
+                            </span>
+                          </span>
+                          <span className="video-date">
+                            <span className="video-date-label">파일 수정일</span>
+                            <span className="video-date-value">
+                              {formatVideoDate(video.modifiedAtMs)}
+                            </span>
+                          </span>
                         </div>
                         <button
                           className={
@@ -2116,7 +2128,7 @@ export function App() {
                             <span className="metadata-search-copy">
                               <strong title={result.fileName}>{result.fileName}</strong>
                               <span>
-                                DB 등록 {formatVideoDate(result.registeredAt)} ·{' '}
+                                DB 등록일 {formatVideoDate(result.registeredAt)} ·{' '}
                                 {result.filePresent ? '파일 있음' : '파일 없음'}
                               </span>
                               {result.sourceCaption ? (
