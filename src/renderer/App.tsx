@@ -21,6 +21,7 @@ import {
   VIDEO_SOURCE_URL_MAX_LENGTH,
   VIDEO_TAG_NAME_MAX_LENGTH,
 } from '../shared/contracts';
+import { VideoEditor } from './VideoEditor';
 
 type LibrarySortOption = `${LibraryVideoSortField}-${LibraryVideoSortDirection}`;
 
@@ -205,6 +206,7 @@ export function App() {
   const [videoDetailsError, setVideoDetailsError] = useState<string | null>(null);
   const [savingReactionHash, setSavingReactionHash] = useState<string | null>(null);
   const [editingVideo, setEditingVideo] = useState<LibraryVideoItem | null>(null);
+  const [videoEditorVideo, setVideoEditorVideo] = useState<LibraryVideoItem | null>(null);
   const [videoMetadata, setVideoMetadata] = useState<VideoMetadataDetail | null>(null);
   const [sourceUrl, setSourceUrl] = useState('');
   const [sourceCaption, setSourceCaption] = useState('');
@@ -850,6 +852,10 @@ export function App() {
     );
   }
 
+  if (videoEditorVideo) {
+    return <VideoEditor video={videoEditorVideo} onBack={() => setVideoEditorVideo(null)} />;
+  }
+
   const libraryVisible = showLibrary && Boolean(state.libraryStats.lastScannedAt);
   const activeFolderName = getFolderName(state.libraryRoot);
 
@@ -1349,8 +1355,8 @@ export function App() {
                           <button
                             className="video-edit-button"
                             type="button"
-                            disabled
-                            title="페이즈 2에서 제공 예정"
+                            onClick={() => setVideoEditorVideo(video)}
+                            disabled={!video.fileAvailable}
                           >
                             영상 편집
                           </button>

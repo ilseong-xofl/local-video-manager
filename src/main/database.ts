@@ -10,6 +10,8 @@ import type {
   LibraryVideoQuery,
   ManagedVideoTag,
   VideoReaction,
+  VideoEditorPreset,
+  VideoEditorPresetInput,
   VideoTag,
   VideoMetadataDetail,
   VideoMetadataInput,
@@ -27,7 +29,7 @@ const LEGACY_LIBRARY_ROOT_KEY = 'library_root';
 const LEGACY_LAST_SCANNED_AT_KEY = 'last_scanned_at';
 const METADATA_SEARCH_LIMIT = 50;
 const DATABASE_APPLICATION_ID = 0x4c564d31;
-const DATABASE_SCHEMA_VERSION = 3;
+const DATABASE_SCHEMA_VERSION = 4;
 const ALL_LIBRARY_VIDEOS_QUERY: LibraryVideoQuery = {
   dateFromMs: 0,
   dateToMs: Date.parse('9999-12-31T23:59:59.999Z'),
@@ -110,12 +112,38 @@ interface VideoCountRow {
   videoCount: number;
 }
 
+interface VideoEditorPresetRow {
+  aspectRatio: VideoEditorPreset['aspectRatio'];
+  createdAt: string;
+  defaultTextStyleJson: string;
+  id: number;
+  letterboxColor: string;
+  name: string;
+  platform: VideoEditorPreset['platform'];
+  resizeMode: VideoEditorPreset['resizeMode'];
+  updatedAt: string;
+}
+
 interface BackupManifestRow {
   appVersion: string;
   schemaVersion: number;
 }
 
 type MetadataSearchRecord = Omit<VideoMetadataSearchResult, 'thumbnailDataUrl'>;
+
+function mapVideoEditorPreset(row: VideoEditorPresetRow): VideoEditorPreset {
+  return {
+    aspectRatio: row.aspectRatio,
+    createdAt: row.createdAt,
+    defaultTextStyle: JSON.parse(row.defaultTextStyleJson) as VideoEditorPreset['defaultTextStyle'],
+    id: row.id,
+    letterboxColor: row.letterboxColor,
+    name: row.name,
+    platform: row.platform,
+    resizeMode: row.resizeMode,
+    updatedAt: row.updatedAt,
+  };
+}
 
 function normalizeLibraryRoot(rootPath: string): { normalizedPath: string; rootPath: string } {
   const resolvedPath = resolve(rootPath);
@@ -711,6 +739,119 @@ export class AppDatabase {
     return reaction;
   }
 
+  public getVideoEditorPresets(): VideoEditorPreset[] {
+    const rows = this.database
+      .prepare(
+        `
+          SELECT
+            id,
+            name,
+            platform,
+            aspect_ratio AS aspectRatio,
+            resize_mode AS resizeMode,
+            letterbox_color AS letterboxColor,
+            default_text_style_json AS defaultTextStyleJson,
+            created_at AS createdAt,
+            updated_at AS updatedAt
+          FROM video_editor_presets
+          ORDER BY updated_at DESC, id DESC
+        `,
+      )
+      .all() as VideoEditorPresetRow[];
+
+    return rows.map(mapVideoEditorPreset);
+  }
+
+  public createVideoEditorPreset(input: VideoEditorPresetInput): VideoEditorPreset {
+    const normalizedName = normalizeSearchText(input.name);
+    const duplicate = this.database
+      .prepare('SELECT 1 AS found FROM video_editor_presets WHERE normalized_name = ?')
+      .get(normalizedName) as TagExistsRow | undefined;
+    if (duplicate) {
+      throw new Error('A video editor preset with this name already exists.');
+    }
+
+    const createdAt = new Date().toISOString();
+    const result = this.database
+      .prepare(
+        `
+          INSERT INTO video_editor_presets (
+            name,
+            normalized_name,
+            platform,
+            aspect_ratio,
+            resize_mode,
+            letterbox_color,
+            default_text_style_json,
+            created_at,
+            updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+      )
+      .run(
+        input.name,
+        normalizedName,
+        input.platform,
+        input.aspectRatio,
+        input.resizeMode,
+        input.letterboxColor,
+        JSON.stringify(input.defaultTextStyle),
+        createdAt,
+        createdAt,
+      );
+
+    return this.getVideoEditorPreset(Number(result.lastInsertRowid));
+  }
+
+  public updateVideoEditorPreset(
+    presetId: number,
+    input: VideoEditorPresetInput,
+  ): VideoEditorPreset {
+    this.assertVideoEditorPresetExists(presetId);
+    const normalizedName = normalizeSearchText(input.name);
+    const duplicate = this.database
+      .prepare('SELECT 1 AS found FROM video_editor_presets WHERE normalized_name = ? AND id <> ?')
+      .get(normalizedName, presetId) as TagExistsRow | undefined;
+    if (duplicate) {
+      throw new Error('A video editor preset with this name already exists.');
+    }
+
+    this.database
+      .prepare(
+        `
+          UPDATE video_editor_presets
+          SET
+            name = ?,
+            normalized_name = ?,
+            platform = ?,
+            aspect_ratio = ?,
+            resize_mode = ?,
+            letterbox_color = ?,
+            default_text_style_json = ?,
+            updated_at = ?
+          WHERE id = ?
+        `,
+      )
+      .run(
+        input.name,
+        normalizedName,
+        input.platform,
+        input.aspectRatio,
+        input.resizeMode,
+        input.letterboxColor,
+        JSON.stringify(input.defaultTextStyle),
+        new Date().toISOString(),
+        presetId,
+      );
+
+    return this.getVideoEditorPreset(presetId);
+  }
+
+  public deleteVideoEditorPreset(presetId: number): void {
+    this.assertVideoEditorPresetExists(presetId);
+    this.database.prepare('DELETE FROM video_editor_presets WHERE id = ?').run(presetId);
+  }
+
   public getVideoMetadata(contentHash: string): VideoMetadataDetail {
     this.assertVideoExists(contentHash);
     const current = this.database
@@ -1125,6 +1266,19 @@ export class AppDatabase {
         PRIMARY KEY(content_hash, tag_id)
       );
 
+      CREATE TABLE IF NOT EXISTS video_editor_presets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        normalized_name TEXT NOT NULL UNIQUE,
+        platform TEXT NOT NULL CHECK (platform IN ('instagram', 'tiktok', 'x')),
+        aspect_ratio TEXT NOT NULL CHECK (aspect_ratio IN ('9:16', '4:5', '1:1', '1.91:1', '16:9')),
+        resize_mode TEXT NOT NULL CHECK (resize_mode IN ('crop', 'letterbox')),
+        letterbox_color TEXT NOT NULL,
+        default_text_style_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS backup_manifest (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         app_version TEXT NOT NULL,
@@ -1305,6 +1459,32 @@ export class AppDatabase {
     return row ?? null;
   }
 
+  private getVideoEditorPreset(presetId: number): VideoEditorPreset {
+    const row = this.database
+      .prepare(
+        `
+          SELECT
+            id,
+            name,
+            platform,
+            aspect_ratio AS aspectRatio,
+            resize_mode AS resizeMode,
+            letterbox_color AS letterboxColor,
+            default_text_style_json AS defaultTextStyleJson,
+            created_at AS createdAt,
+            updated_at AS updatedAt
+          FROM video_editor_presets
+          WHERE id = ?
+        `,
+      )
+      .get(presetId) as VideoEditorPresetRow | undefined;
+    if (!row) {
+      throw new Error('Video editor preset not found.');
+    }
+
+    return mapVideoEditorPreset(row);
+  }
+
   private tableExists(tableName: string): boolean {
     return Boolean(
       this.database
@@ -1336,6 +1516,15 @@ export class AppDatabase {
 
     if (!row) {
       throw new Error('Tag not found.');
+    }
+  }
+
+  private assertVideoEditorPresetExists(presetId: number): void {
+    const row = this.database
+      .prepare('SELECT 1 AS found FROM video_editor_presets WHERE id = ?')
+      .get(presetId) as TagExistsRow | undefined;
+    if (!row) {
+      throw new Error('Video editor preset not found.');
     }
   }
 

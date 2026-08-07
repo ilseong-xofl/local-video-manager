@@ -26,6 +26,24 @@ const api: LocalVideoManagerApi = {
   saveVideoMetadata: (contentHash, input, copiedFromContentHash) =>
     ipcRenderer.invoke(IPC_CHANNELS.saveVideoMetadata, contentHash, input, copiedFromContentHash),
   scanLibrary: () => ipcRenderer.invoke(IPC_CHANNELS.scanLibrary),
+  getVideoEditorPresets: () => ipcRenderer.invoke(IPC_CHANNELS.getVideoEditorPresets),
+  createVideoEditorPreset: (input) =>
+    ipcRenderer.invoke(IPC_CHANNELS.createVideoEditorPreset, input),
+  updateVideoEditorPreset: (id, input) =>
+    ipcRenderer.invoke(IPC_CHANNELS.updateVideoEditorPreset, id, input),
+  deleteVideoEditorPreset: (id) => ipcRenderer.invoke(IPC_CHANNELS.deleteVideoEditorPreset, id),
+  startVideoRender: (contentHash, request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.startVideoRender, contentHash, request),
+  cancelVideoRender: (jobId) => ipcRenderer.invoke(IPC_CHANNELS.cancelVideoRender, jobId),
+  revealRenderedVideo: (jobId) => ipcRenderer.invoke(IPC_CHANNELS.revealRenderedVideo, jobId),
+  onVideoRenderProgress: (listener) => {
+    const handleProgress = (
+      _event: Electron.IpcRendererEvent,
+      progress: Parameters<typeof listener>[0],
+    ) => listener(progress);
+    ipcRenderer.on(IPC_CHANNELS.videoRenderProgress, handleProgress);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.videoRenderProgress, handleProgress);
+  },
 };
 
 contextBridge.exposeInMainWorld('localVideoManager', api);

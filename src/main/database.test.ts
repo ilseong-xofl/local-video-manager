@@ -82,6 +82,21 @@ describe('AppDatabase', () => {
     const backedUpTag = database.createVideoTag('백업 태그');
     database.setVideoTags(contentHash, [backedUpTag.id]);
     database.setVideoReaction(contentHash, 'hype');
+    const backedUpPreset = database.createVideoEditorPreset({
+      aspectRatio: '9:16',
+      defaultTextStyle: {
+        backgroundColor: '#000000',
+        backgroundOpacity: 0.8,
+        fontSizePercent: 4.5,
+        fontWeight: 700,
+        textAlign: 'center',
+        textColor: '#FFFFFF',
+      },
+      letterboxColor: '#000000',
+      name: '릴스 기본',
+      platform: 'instagram',
+      resizeMode: 'crop',
+    });
     const libraryId = database.getOrCreateLibraryId();
 
     await database.createBackup(backupPath, '0.1.1');
@@ -92,7 +107,7 @@ describe('AppDatabase', () => {
           'SELECT app_version AS appVersion, schema_version AS schemaVersion FROM backup_manifest',
         )
         .get(),
-    ).toEqual({ appVersion: '0.1.1', schemaVersion: 3 });
+    ).toEqual({ appVersion: '0.1.1', schemaVersion: 4 });
     backupFile.close();
 
     database.saveVideoMetadata(contentHash, {
@@ -116,6 +131,9 @@ describe('AppDatabase', () => {
       { id: backedUpTag.id, name: '백업 태그' },
     ]);
     expect(restoredDatabase.getLibraryVideoByHash(contentHash)?.reaction).toBe('hype');
+    expect(restoredDatabase.getVideoEditorPresets()).toEqual([
+      expect.objectContaining({ id: backedUpPreset.id, name: '릴스 기본' }),
+    ]);
     restoredDatabase.close();
 
     const automaticBackup = new AppDatabase(automaticBackupPath);
@@ -825,6 +843,54 @@ describe('AppDatabase', () => {
       }),
     ).toThrow('Video not found.');
     expect(() => database.getVideoMetadata('a'.repeat(64))).toThrow('Video not found.');
+    database.close();
+  });
+
+  it('creates, updates, lists, and deletes video editor presets', () => {
+    const database = new AppDatabase(createDatabasePath());
+    const created = database.createVideoEditorPreset({
+      aspectRatio: '9:16',
+      defaultTextStyle: {
+        backgroundColor: '#111111',
+        backgroundOpacity: 0.75,
+        fontSizePercent: 5,
+        fontWeight: 700,
+        textAlign: 'center',
+        textColor: '#FFFFFF',
+      },
+      letterboxColor: '#000000',
+      name: '틱톡 기본',
+      platform: 'tiktok',
+      resizeMode: 'crop',
+    });
+
+    expect(database.getVideoEditorPresets()).toEqual([created]);
+
+    const updated = database.updateVideoEditorPreset(created.id, {
+      ...created,
+      aspectRatio: '1:1',
+      name: '틱톡 정사각형',
+      resizeMode: 'letterbox',
+    });
+    expect(updated).toMatchObject({
+      aspectRatio: '1:1',
+      id: created.id,
+      name: '틱톡 정사각형',
+      resizeMode: 'letterbox',
+    });
+
+    expect(() =>
+      database.createVideoEditorPreset({
+        ...updated,
+        name: '틱톡 정사각형',
+      }),
+    ).toThrow('A video editor preset with this name already exists.');
+
+    database.deleteVideoEditorPreset(created.id);
+    expect(database.getVideoEditorPresets()).toEqual([]);
+    expect(() => database.deleteVideoEditorPreset(created.id)).toThrow(
+      'Video editor preset not found.',
+    );
     database.close();
   });
 });

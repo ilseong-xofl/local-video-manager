@@ -1,5 +1,5 @@
 import { statSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, dirname, extname, join, resolve } from 'node:path';
 
 import {
   app,
@@ -18,9 +18,16 @@ import {
   type DatabaseBackupResult,
   type DatabaseRestoreResult,
   type ScanLibraryResult,
+  type StartVideoRenderResult,
 } from '../shared/contracts';
 import type { AppDatabase } from './database';
 import { resolveLibraryFilePath, type ThumbnailCache } from './thumbnail-cache';
+import {
+  parseVideoEditorPresetId,
+  parseVideoEditorPresetInput,
+  parseVideoRenderJobId,
+  parseVideoRenderRequest,
+} from './video-editor';
 import { getLibraryVideoPage, parseVideoReaction } from './video-library';
 import {
   parseContentHash,
@@ -30,6 +37,8 @@ import {
 } from './video-metadata';
 import { scanVideoDirectory } from './video-scanner';
 import { parseVideoTagId, parseVideoTagIds, parseVideoTagName } from './video-tags';
+import { resolveVideoPlaybackPath } from './video-playback';
+import { VideoRenderManager } from './video-renderer';
 
 function isDirectoryAvailable(directoryPath: string | null): boolean {
   if (!directoryPath) {
@@ -60,10 +69,19 @@ function backupFileTimestamp(): string {
   return new Date().toISOString().replace(/[:.]/g, '-');
 }
 
+function pathsMatch(firstPath: string, secondPath: string): boolean {
+  const first = resolve(firstPath);
+  const second = resolve(secondPath);
+  return process.platform === 'win32'
+    ? first.toLowerCase() === second.toLowerCase()
+    : first === second;
+}
+
 export function registerIpcHandlers(
   database: AppDatabase,
   thumbnailCache: ThumbnailCache,
 ): () => void {
+  const videoRenderManager = new VideoRenderManager();
   ipcMain.handle(IPC_CHANNELS.getBootstrapState, () => buildBootstrapState(database));
 
   ipcMain.handle(IPC_CHANNELS.createDatabaseBackup, async (): Promise<DatabaseBackupResult> => {
@@ -285,7 +303,77 @@ export function registerIpcHandlers(
     };
   });
 
+  ipcMain.handle(IPC_CHANNELS.getVideoEditorPresets, () => database.getVideoEditorPresets());
+
+  ipcMain.handle(IPC_CHANNELS.createVideoEditorPreset, (_event, input: unknown) =>
+    database.createVideoEditorPreset(parseVideoEditorPresetInput(input)),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.updateVideoEditorPreset,
+    (_event, presetId: unknown, input: unknown) =>
+      database.updateVideoEditorPreset(
+        parseVideoEditorPresetId(presetId),
+        parseVideoEditorPresetInput(input),
+      ),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.deleteVideoEditorPreset, (_event, presetId: unknown) =>
+    database.deleteVideoEditorPreset(parseVideoEditorPresetId(presetId)),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.startVideoRender,
+    async (event, contentHash: unknown, requestValue: unknown): Promise<StartVideoRenderResult> => {
+      const parsedContentHash = parseContentHash(contentHash);
+      const request = parseVideoRenderRequest(requestValue);
+      const sourcePath = await resolveVideoPlaybackPath(database, parsedContentHash);
+      if (!sourcePath) {
+        throw new Error('The source video is not available.');
+      }
+
+      const sourceExtension = extname(sourcePath);
+      const defaultOutputPath = join(
+        dirname(sourcePath),
+        `${basename(sourcePath, sourceExtension)}-edited.mp4`,
+      );
+      const parentWindow = BrowserWindow.getFocusedWindow();
+      const options: SaveDialogOptions = {
+        title: '편집 영상 저장',
+        buttonLabel: '영상 만들기',
+        defaultPath: defaultOutputPath,
+        filters: [{ name: 'MP4 영상', extensions: ['mp4'] }],
+      };
+      const selected = parentWindow
+        ? await dialog.showSaveDialog(parentWindow, options)
+        : await dialog.showSaveDialog(options);
+      if (selected.canceled || !selected.filePath) {
+        return { cancelled: true, jobId: null, outputPath: null };
+      }
+      if (pathsMatch(sourcePath, selected.filePath)) {
+        throw new Error('The edited video cannot overwrite its source file.');
+      }
+
+      const outputPath = selected.filePath;
+      const jobId = videoRenderManager.start(sourcePath, outputPath, request, (progress) => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send(IPC_CHANNELS.videoRenderProgress, progress);
+        }
+      });
+      return { cancelled: false, jobId, outputPath };
+    },
+  );
+
+  ipcMain.handle(IPC_CHANNELS.cancelVideoRender, (_event, jobId: unknown) =>
+    videoRenderManager.cancel(parseVideoRenderJobId(jobId)),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.revealRenderedVideo, (_event, jobId: unknown) => {
+    shell.showItemInFolder(videoRenderManager.getCompletedOutput(parseVideoRenderJobId(jobId)));
+  });
+
   return () => {
+    videoRenderManager.dispose();
     ipcMain.removeHandler(IPC_CHANNELS.getBootstrapState);
     ipcMain.removeHandler(IPC_CHANNELS.createDatabaseBackup);
     ipcMain.removeHandler(IPC_CHANNELS.restoreDatabaseBackup);
@@ -303,5 +391,12 @@ export function registerIpcHandlers(
     ipcMain.removeHandler(IPC_CHANNELS.searchVideoMetadata);
     ipcMain.removeHandler(IPC_CHANNELS.saveVideoMetadata);
     ipcMain.removeHandler(IPC_CHANNELS.scanLibrary);
+    ipcMain.removeHandler(IPC_CHANNELS.getVideoEditorPresets);
+    ipcMain.removeHandler(IPC_CHANNELS.createVideoEditorPreset);
+    ipcMain.removeHandler(IPC_CHANNELS.updateVideoEditorPreset);
+    ipcMain.removeHandler(IPC_CHANNELS.deleteVideoEditorPreset);
+    ipcMain.removeHandler(IPC_CHANNELS.startVideoRender);
+    ipcMain.removeHandler(IPC_CHANNELS.cancelVideoRender);
+    ipcMain.removeHandler(IPC_CHANNELS.revealRenderedVideo);
   };
 }

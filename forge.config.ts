@@ -4,15 +4,24 @@ import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-nati
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { WebpackPlugin } from '@electron-forge/plugin-webpack';
 import type { ForgeConfig } from '@electron-forge/shared-types';
+import { join } from 'node:path';
 
 import { mainConfig } from './webpack.main.config';
 import { rendererConfig } from './webpack.renderer.config';
+
+const ffmpegBinaryName = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+const ffmpegResourceDirectory = join('node_modules', 'ffmpeg-static');
 
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
     appBundleId: 'com.localvideomanager.desktop',
     executableName: 'LocalVideoManager',
+    extraResource: [
+      join(ffmpegResourceDirectory, ffmpegBinaryName),
+      join(ffmpegResourceDirectory, 'ffmpeg.LICENSE'),
+      join(ffmpegResourceDirectory, 'ffmpeg.README'),
+    ],
   },
   rebuildConfig: {},
   makers: [
