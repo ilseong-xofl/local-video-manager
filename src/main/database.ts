@@ -8,6 +8,8 @@ import type {
   LibraryStats,
   LibraryVideo,
   LibraryVideoQuery,
+  ManagedVideoTag,
+  VideoTag,
   VideoMetadataDetail,
   VideoMetadataInput,
   VideoMetadataRevision,
@@ -15,6 +17,7 @@ import type {
   VideoMetadataSnapshot,
   VideoScanSummary,
 } from '../shared/contracts';
+import { VIDEO_TAG_NAME_MAX_LENGTH } from '../shared/contracts';
 import type { ScannedVideoFile } from './video-scanner';
 
 const LIBRARY_ID_KEY = 'library_id';
@@ -23,13 +26,14 @@ const LEGACY_LIBRARY_ROOT_KEY = 'library_root';
 const LEGACY_LAST_SCANNED_AT_KEY = 'last_scanned_at';
 const METADATA_SEARCH_LIMIT = 50;
 const DATABASE_APPLICATION_ID = 0x4c564d31;
-const DATABASE_SCHEMA_VERSION = 1;
+const DATABASE_SCHEMA_VERSION = 2;
 const ALL_LIBRARY_VIDEOS_QUERY: LibraryVideoQuery = {
   dateFromMs: 0,
   dateToMs: Date.parse('9999-12-31T23:59:59.999Z'),
   searchQuery: '',
   sortDirection: 'desc',
   sortField: 'registeredAt',
+  tagId: null,
 };
 
 interface SettingRow {
@@ -86,6 +90,22 @@ interface VideoExistsRow {
   found: number;
 }
 
+type VideoTagRow = VideoTag;
+
+type ManagedVideoTagRow = ManagedVideoTag;
+
+interface TagExistsRow {
+  found: number;
+}
+
+interface TagIdRow {
+  id: number;
+}
+
+interface VideoCountRow {
+  videoCount: number;
+}
+
 interface BackupManifestRow {
   appVersion: string;
   schemaVersion: number;
@@ -103,6 +123,15 @@ function normalizeLibraryRoot(rootPath: string): { normalizedPath: string; rootP
 
 function normalizeSearchText(value: string): string {
   return value.normalize('NFC').toLowerCase();
+}
+
+function normalizeTagName(value: string): { name: string; normalizedName: string } {
+  const name = value.trim().normalize('NFC');
+  if (!name || name.length > VIDEO_TAG_NAME_MAX_LENGTH) {
+    throw new Error('Invalid video tag name.');
+  }
+
+  return { name, normalizedName: normalizeSearchText(name) };
 }
 
 function databasePathsMatch(firstPath: string, secondPath: string): boolean {
@@ -366,6 +395,16 @@ export class AppDatabase {
                   AND instr(normalize_search_text(matching_files.file_name), ?) > 0
               )
             )
+            AND (
+              ? IS NULL
+              OR EXISTS (
+                SELECT 1
+                FROM video_tags
+                WHERE
+                  video_tags.content_hash = ranked_files.contentHash
+                  AND video_tags.tag_id = ?
+              )
+            )
         `,
       )
       .get(
@@ -375,6 +414,8 @@ export class AppDatabase {
         queryParts.normalizedSearchQuery,
         managedFolder.id,
         queryParts.normalizedSearchQuery,
+        query.tagId,
+        query.tagId,
       ) as TotalRow;
 
     return row.totalItems;
@@ -435,6 +476,16 @@ export class AppDatabase {
                   AND instr(normalize_search_text(matching_files.file_name), ?) > 0
               )
             )
+            AND (
+              ? IS NULL
+              OR EXISTS (
+                SELECT 1
+                FROM video_tags
+                WHERE
+                  video_tags.content_hash = ranked_files.contentHash
+                  AND video_tags.tag_id = ?
+              )
+            )
           ORDER BY
             ${queryParts.orderBy},
             ranked_files.fileName COLLATE NOCASE,
@@ -449,6 +500,8 @@ export class AppDatabase {
         queryParts.normalizedSearchQuery,
         managedFolder.id,
         queryParts.normalizedSearchQuery,
+        query.tagId,
+        query.tagId,
         limit,
         offset,
       ) as LibraryVideoRow[];
@@ -499,6 +552,124 @@ export class AppDatabase {
           metadataRegistered: row.metadataUpdatedAt !== null,
         }
       : null;
+  }
+
+  public getTags(): ManagedVideoTag[] {
+    return this.database
+      .prepare(
+        `
+          SELECT
+            tags.id,
+            tags.name,
+            COUNT(video_tags.content_hash) AS videoCount
+          FROM tags
+          LEFT JOIN video_tags ON video_tags.tag_id = tags.id
+          GROUP BY tags.id, tags.name
+          ORDER BY tags.normalized_name, tags.name, tags.id
+        `,
+      )
+      .all() as ManagedVideoTagRow[];
+  }
+
+  public createVideoTag(value: string): ManagedVideoTag {
+    const { name, normalizedName } = normalizeTagName(value);
+    const duplicate = this.database
+      .prepare('SELECT 1 AS found FROM tags WHERE normalized_name = ?')
+      .get(normalizedName) as TagExistsRow | undefined;
+    if (duplicate) {
+      throw new Error('A tag with this name already exists.');
+    }
+
+    const createdAt = new Date().toISOString();
+    const result = this.database
+      .prepare(
+        `
+          INSERT INTO tags (name, normalized_name, created_at, updated_at)
+          VALUES (?, ?, ?, ?)
+        `,
+      )
+      .run(name, normalizedName, createdAt, createdAt);
+
+    return { id: Number(result.lastInsertRowid), name, videoCount: 0 };
+  }
+
+  public renameVideoTag(tagId: number, value: string): ManagedVideoTag {
+    this.assertTagExists(tagId);
+    const { name, normalizedName } = normalizeTagName(value);
+    const duplicate = this.database
+      .prepare('SELECT id FROM tags WHERE normalized_name = ? AND id <> ?')
+      .get(normalizedName, tagId) as TagIdRow | undefined;
+    if (duplicate) {
+      throw new Error('A tag with this name already exists.');
+    }
+
+    this.database
+      .prepare(
+        `
+          UPDATE tags
+          SET name = ?, normalized_name = ?, updated_at = ?
+          WHERE id = ?
+        `,
+      )
+      .run(name, normalizedName, new Date().toISOString(), tagId);
+    const row = this.database
+      .prepare('SELECT COUNT(*) AS videoCount FROM video_tags WHERE tag_id = ?')
+      .get(tagId) as VideoCountRow;
+
+    return { id: tagId, name, videoCount: row.videoCount };
+  }
+
+  public deleteVideoTag(tagId: number): void {
+    this.assertTagExists(tagId);
+    this.database.prepare('DELETE FROM tags WHERE id = ?').run(tagId);
+  }
+
+  public getVideoTags(contentHash: string): VideoTag[] {
+    this.assertVideoExists(contentHash);
+    return this.database
+      .prepare(
+        `
+          SELECT tags.id, tags.name
+          FROM video_tags
+          JOIN tags ON tags.id = video_tags.tag_id
+          WHERE video_tags.content_hash = ?
+          ORDER BY tags.normalized_name, tags.name, tags.id
+        `,
+      )
+      .all(contentHash) as VideoTagRow[];
+  }
+
+  public setVideoTags(contentHash: string, tagIds: readonly number[]): VideoTag[] {
+    this.assertVideoExists(contentHash);
+    if (
+      tagIds.some((tagId) => !Number.isSafeInteger(tagId) || tagId <= 0) ||
+      new Set(tagIds).size !== tagIds.length
+    ) {
+      throw new Error('Invalid video tag IDs.');
+    }
+
+    if (tagIds.length > 0) {
+      const placeholders = tagIds.map(() => '?').join(', ');
+      const existingTagIds = this.database
+        .prepare(`SELECT id FROM tags WHERE id IN (${placeholders})`)
+        .all(...tagIds) as TagIdRow[];
+      if (existingTagIds.length !== tagIds.length) {
+        throw new Error('Tag not found.');
+      }
+    }
+
+    const assignedAt = new Date().toISOString();
+    this.database.transaction(() => {
+      this.database.prepare('DELETE FROM video_tags WHERE content_hash = ?').run(contentHash);
+      const insert = this.database.prepare(
+        'INSERT INTO video_tags (content_hash, tag_id, created_at) VALUES (?, ?, ?)',
+      );
+      for (const tagId of tagIds) {
+        insert.run(contentHash, tagId, assignedAt);
+      }
+    })();
+
+    return this.getVideoTags(contentHash);
   }
 
   public getVideoMetadata(contentHash: string): VideoMetadataDetail {
@@ -899,6 +1070,21 @@ export class AppDatabase {
         CHECK (source_url IS NOT NULL OR source_caption IS NOT NULL)
       );
 
+      CREATE TABLE IF NOT EXISTS tags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        normalized_name TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS video_tags (
+        content_hash TEXT NOT NULL REFERENCES videos(content_hash) ON DELETE CASCADE,
+        tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY(content_hash, tag_id)
+      );
+
       CREATE TABLE IF NOT EXISTS backup_manifest (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         app_version TEXT NOT NULL,
@@ -1009,6 +1195,9 @@ export class AppDatabase {
 
       CREATE INDEX IF NOT EXISTS video_metadata_revisions_content_hash_idx
       ON video_metadata_revisions(content_hash, id DESC);
+
+      CREATE INDEX IF NOT EXISTS video_tags_tag_id_idx
+      ON video_tags(tag_id, content_hash);
     `);
   }
 
@@ -1091,6 +1280,15 @@ export class AppDatabase {
 
     if (!row) {
       throw new Error('Video not found.');
+    }
+  }
+
+  private assertTagExists(tagId: number): void {
+    const row = this.database.prepare('SELECT 1 AS found FROM tags WHERE id = ?').get(tagId) as
+      TagExistsRow | undefined;
+
+    if (!row) {
+      throw new Error('Tag not found.');
     }
   }
 

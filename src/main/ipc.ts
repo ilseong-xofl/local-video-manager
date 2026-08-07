@@ -28,6 +28,7 @@ import {
   parseVideoMetadataSearchQuery,
 } from './video-metadata';
 import { scanVideoDirectory } from './video-scanner';
+import { parseVideoTagId, parseVideoTagIds, parseVideoTagName } from './video-tags';
 
 function isDirectoryAvailable(directoryPath: string | null): boolean {
   if (!directoryPath) {
@@ -159,6 +160,24 @@ export function registerIpcHandlers(
     getLibraryVideoPage(database, thumbnailCache, pageIndex, query),
   );
 
+  ipcMain.handle(IPC_CHANNELS.getTags, () => database.getTags());
+
+  ipcMain.handle(IPC_CHANNELS.createTag, (_event, name: unknown) =>
+    database.createVideoTag(parseVideoTagName(name)),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.renameTag, (_event, tagId: unknown, name: unknown) =>
+    database.renameVideoTag(parseVideoTagId(tagId), parseVideoTagName(name)),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.deleteTag, (_event, tagId: unknown) =>
+    database.deleteVideoTag(parseVideoTagId(tagId)),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.setVideoTags, (_event, contentHash: unknown, tagIds: unknown) =>
+    database.setVideoTags(parseContentHash(contentHash), parseVideoTagIds(tagIds)),
+  );
+
   ipcMain.handle(IPC_CHANNELS.getVideoMetadata, (_event, contentHash: unknown) =>
     database.getVideoMetadata(parseContentHash(contentHash)),
   );
@@ -238,6 +257,11 @@ export function registerIpcHandlers(
     ipcMain.removeHandler(IPC_CHANNELS.restoreDatabaseBackup);
     ipcMain.removeHandler(IPC_CHANNELS.chooseLibraryRoot);
     ipcMain.removeHandler(IPC_CHANNELS.getLibraryVideoPage);
+    ipcMain.removeHandler(IPC_CHANNELS.getTags);
+    ipcMain.removeHandler(IPC_CHANNELS.createTag);
+    ipcMain.removeHandler(IPC_CHANNELS.renameTag);
+    ipcMain.removeHandler(IPC_CHANNELS.deleteTag);
+    ipcMain.removeHandler(IPC_CHANNELS.setVideoTags);
     ipcMain.removeHandler(IPC_CHANNELS.getVideoMetadata);
     ipcMain.removeHandler(IPC_CHANNELS.searchVideoMetadata);
     ipcMain.removeHandler(IPC_CHANNELS.saveVideoMetadata);

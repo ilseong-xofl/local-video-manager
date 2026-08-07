@@ -16,6 +16,7 @@ const ALL_VIDEOS_QUERY = {
   searchQuery: '',
   sortDirection: 'desc',
   sortField: 'registeredAt',
+  tagId: null,
 } as const;
 
 function createTemporaryDirectory(): string {
@@ -56,6 +57,8 @@ describe('getLibraryVideoPage', () => {
       ],
       { hashedFileCount: 2, reusedHashCount: 0 },
     );
+    const tag = database.createVideoTag('유머');
+    database.setVideoTags('a'.repeat(64), [tag.id]);
     const createThumbnail = vi.fn(async () => Buffer.from('thumbnail'));
     const thumbnailCache = new ThumbnailCache(join(directory, 'thumbnails'), createThumbnail);
 
@@ -69,6 +72,7 @@ describe('getLibraryVideoPage', () => {
       fileName: 'first.mp4',
       playbackUrl: `local-video://media/${'a'.repeat(64)}`,
       relativePath: 'first.mp4',
+      tags: [{ id: tag.id, name: '유머' }],
       thumbnailDataUrl: expect.stringMatching(/^data:image\/jpeg;base64,/),
     });
     expect(page.items[0]).not.toHaveProperty('absolutePath');
@@ -150,5 +154,8 @@ describe('parseLibraryVideoQuery', () => {
     expect(() =>
       parseLibraryVideoQuery({ ...ALL_VIDEOS_QUERY, dateFromMs: 2, dateToMs: 1 }),
     ).toThrow('Invalid video library query.');
+    expect(() => parseLibraryVideoQuery({ ...ALL_VIDEOS_QUERY, tagId: 0 })).toThrow(
+      'Invalid video library query.',
+    );
   });
 });

@@ -38,6 +38,7 @@ function libraryQuery(overrides: Partial<LibraryVideoQuery> = {}): LibraryVideoQ
     searchQuery: '',
     sortDirection: 'desc',
     sortField: 'registeredAt',
+    tagId: null,
     ...overrides,
   };
 }
@@ -77,6 +78,8 @@ describe('AppDatabase', () => {
       sourceCaption: '백업 시점 캡션',
       sourceUrl: 'https://example.com/original',
     });
+    const backedUpTag = database.createVideoTag('백업 태그');
+    database.setVideoTags(contentHash, [backedUpTag.id]);
     const libraryId = database.getOrCreateLibraryId();
 
     await database.createBackup(backupPath, '0.1.1');
@@ -87,7 +90,7 @@ describe('AppDatabase', () => {
           'SELECT app_version AS appVersion, schema_version AS schemaVersion FROM backup_manifest',
         )
         .get(),
-    ).toEqual({ appVersion: '0.1.1', schemaVersion: 1 });
+    ).toEqual({ appVersion: '0.1.1', schemaVersion: 2 });
     backupFile.close();
 
     database.saveVideoMetadata(contentHash, {
@@ -107,6 +110,9 @@ describe('AppDatabase', () => {
       sourceCaption: '백업 시점 캡션',
       sourceUrl: 'https://example.com/original',
     });
+    expect(restoredDatabase.getVideoTags(contentHash)).toEqual([
+      { id: backedUpTag.id, name: '백업 태그' },
+    ]);
     restoredDatabase.close();
 
     const automaticBackup = new AppDatabase(automaticBackupPath);
@@ -412,6 +418,67 @@ describe('AppDatabase', () => {
     expect(database.searchVideoMetadata('유머', targetHash)).toEqual([
       expect.objectContaining({ contentHash: sourceHash, fileName: nfdFileName }),
     ]);
+    database.close();
+  });
+
+  it('creates, renames, and case-insensitively deduplicates tags', () => {
+    const database = new AppDatabase(createDatabasePath());
+    const firstTag = database.createVideoTag('  Humor  ');
+    const secondTag = database.createVideoTag('Popular');
+
+    expect(firstTag).toMatchObject({ name: 'Humor', videoCount: 0 });
+    expect(database.getTags()).toEqual([firstTag, secondTag]);
+    expect(() => database.createVideoTag('humor')).toThrow('A tag with this name already exists.');
+    expect(database.renameVideoTag(firstTag.id, 'Comedy')).toEqual({
+      id: firstTag.id,
+      name: 'Comedy',
+      videoCount: 0,
+    });
+    expect(() => database.renameVideoTag(secondTag.id, 'COMEDY')).toThrow(
+      'A tag with this name already exists.',
+    );
+    database.close();
+  });
+
+  it('assigns multiple tags, filters by one tag, and deletes only tag assignments', () => {
+    const database = new AppDatabase(createDatabasePath());
+    const firstHash = 'a'.repeat(64);
+    const secondHash = 'b'.repeat(64);
+    database.setLibraryRoot('/videos');
+    database.syncVideoFiles(
+      [scannedVideo('first.mp4', firstHash), scannedVideo('second.mp4', secondHash)],
+      { hashedFileCount: 2, reusedHashCount: 0 },
+    );
+    database.saveVideoMetadata(firstHash, {
+      sourceCaption: '태그 삭제 후에도 유지할 캡션',
+      sourceUrl: null,
+    });
+    const comedy = database.createVideoTag('Comedy');
+    const popular = database.createVideoTag('Popular');
+
+    expect(database.setVideoTags(firstHash, [comedy.id, popular.id])).toEqual([
+      { id: comedy.id, name: 'Comedy' },
+      { id: popular.id, name: 'Popular' },
+    ]);
+    database.setVideoTags(secondHash, [popular.id]);
+    expect(database.getTags()).toEqual([
+      { ...comedy, videoCount: 1 },
+      { ...popular, videoCount: 2 },
+    ]);
+
+    const comedyQuery = libraryQuery({ tagId: comedy.id });
+    expect(database.getLibraryVideoCount(comedyQuery)).toBe(1);
+    expect(database.getLibraryVideos(24, 0, comedyQuery)[0].contentHash).toBe(firstHash);
+
+    expect(() => database.setVideoTags(firstHash, [999_999])).toThrow('Tag not found.');
+    expect(database.getVideoTags(firstHash)).toHaveLength(2);
+
+    database.deleteVideoTag(comedy.id);
+    expect(database.getVideoTags(firstHash)).toEqual([{ id: popular.id, name: 'Popular' }]);
+    expect(database.getVideoMetadata(firstHash).current?.sourceCaption).toBe(
+      '태그 삭제 후에도 유지할 캡션',
+    );
+    expect(database.getLibraryVideoCount()).toBe(2);
     database.close();
   });
 

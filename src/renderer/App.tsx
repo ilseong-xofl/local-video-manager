@@ -7,6 +7,7 @@ import type {
   LibraryVideoQuery,
   LibraryVideoSortDirection,
   LibraryVideoSortField,
+  ManagedVideoTag,
   VideoMetadataDetail,
   VideoMetadataSearchResult,
   VideoScanSummary,
@@ -16,6 +17,7 @@ import {
   VIDEO_METADATA_SEARCH_MAX_LENGTH,
   VIDEO_SOURCE_CAPTION_MAX_LENGTH,
   VIDEO_SOURCE_URL_MAX_LENGTH,
+  VIDEO_TAG_NAME_MAX_LENGTH,
 } from '../shared/contracts';
 
 type LibrarySortOption = `${LibraryVideoSortField}-${LibraryVideoSortDirection}`;
@@ -74,6 +76,7 @@ function buildLibraryVideoQuery(
   sortOption: LibrarySortOption,
   dateFrom: string,
   dateTo: string,
+  tagId: number | null,
 ): LibraryVideoQuery | null {
   const dateFromMs = parseDateInput(dateFrom, false);
   const dateToMs = parseDateInput(dateTo, true);
@@ -85,7 +88,7 @@ function buildLibraryVideoQuery(
     LibraryVideoSortField,
     LibraryVideoSortDirection,
   ];
-  return { dateFromMs, dateToMs, searchQuery, sortDirection, sortField };
+  return { dateFromMs, dateToMs, searchQuery, sortDirection, sortField, tagId };
 }
 
 function formatScanTime(value: string | null): string {
@@ -135,6 +138,15 @@ export function App() {
   const [scanCompletedOpen, setScanCompletedOpen] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [tags, setTags] = useState<ManagedVideoTag[]>([]);
+  const [tagManagerOpen, setTagManagerOpen] = useState(false);
+  const [newTagName, setNewTagName] = useState('');
+  const [editingTagId, setEditingTagId] = useState<number | null>(null);
+  const [editingTagName, setEditingTagName] = useState('');
+  const [pendingDeleteTagId, setPendingDeleteTagId] = useState<number | null>(null);
+  const [tagManagerBusy, setTagManagerBusy] = useState(false);
+  const [tagManagerError, setTagManagerError] = useState<string | null>(null);
+  const [tagManagerMessage, setTagManagerMessage] = useState<string | null>(null);
   const [videoPage, setVideoPage] = useState<LibraryVideoPage | null>(null);
   const [loadingVideos, setLoadingVideos] = useState(false);
   const [defaultLibraryFilters] = useState(createDefaultLibraryFilters);
@@ -142,6 +154,7 @@ export function App() {
   const [librarySortOption, setLibrarySortOption] = useState(defaultLibraryFilters.sortOption);
   const [libraryDateFrom, setLibraryDateFrom] = useState(defaultLibraryFilters.dateFrom);
   const [libraryDateTo, setLibraryDateTo] = useState(defaultLibraryFilters.dateTo);
+  const [libraryTagId, setLibraryTagId] = useState<number | null>(null);
   const [libraryFilterError, setLibraryFilterError] = useState<string | null>(null);
   const [appliedLibraryQuery, setAppliedLibraryQuery] = useState<LibraryVideoQuery>(() => {
     const query = buildLibraryVideoQuery(
@@ -149,6 +162,7 @@ export function App() {
       defaultLibraryFilters.sortOption,
       defaultLibraryFilters.dateFrom,
       defaultLibraryFilters.dateTo,
+      null,
     );
     if (!query) {
       throw new Error('Failed to create the default video library query.');
@@ -174,11 +188,17 @@ export function App() {
   const [searchingMetadata, setSearchingMetadata] = useState(false);
   const [metadataSearchError, setMetadataSearchError] = useState<string | null>(null);
   const [copiedFromVideo, setCopiedFromVideo] = useState<VideoMetadataSearchResult | null>(null);
+  const [selectedVideoTagIds, setSelectedVideoTagIds] = useState<number[]>([]);
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
   const settingsMenuRef = useRef<HTMLDivElement | null>(null);
   const databaseBusy = backingUpDatabase || restoringDatabase;
 
   useEffect(() => {
+    void window.localVideoManager
+      .getTags()
+      .then(setTags)
+      .catch(() => setError('태그 정보를 불러오지 못했습니다.'));
+
     void window.localVideoManager
       .getBootstrapState()
       .then((bootstrapState) => {
@@ -193,7 +213,13 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!playingVideo && !editingVideo && !scanningFolder && !scanCompletedOpen) {
+    if (
+      !playingVideo &&
+      !editingVideo &&
+      !tagManagerOpen &&
+      !scanningFolder &&
+      !scanCompletedOpen
+    ) {
       return;
     }
 
@@ -206,6 +232,8 @@ export function App() {
           setMetadataSearchOpen(false);
         } else if (editingVideo) {
           closeMetadataEditor();
+        } else if (tagManagerOpen) {
+          closeTagManager();
         }
       }
     };
@@ -217,7 +245,15 @@ export function App() {
       document.body.style.overflow = previousOverflow;
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [editingVideo, metadataSearchOpen, playingVideo, scanCompletedOpen, scanningFolder]);
+  }, [
+    editingVideo,
+    metadataSearchOpen,
+    playingVideo,
+    scanCompletedOpen,
+    scanningFolder,
+    tagManagerBusy,
+    tagManagerOpen,
+  ]);
 
   useEffect(() => {
     if (!settingsOpen) {
@@ -254,6 +290,12 @@ export function App() {
     } finally {
       setLoadingVideos(false);
     }
+  }
+
+  async function refreshTags(): Promise<ManagedVideoTag[]> {
+    const nextTags = await window.localVideoManager.getTags();
+    setTags(nextTags);
+    return nextTags;
   }
 
   async function chooseFolder() {
@@ -339,6 +381,129 @@ export function App() {
     }
   }
 
+  function openTagManager() {
+    setSettingsOpen(false);
+    setTagManagerOpen(true);
+    setNewTagName('');
+    setEditingTagId(null);
+    setEditingTagName('');
+    setPendingDeleteTagId(null);
+    setTagManagerError(null);
+    setTagManagerMessage(null);
+  }
+
+  function closeTagManager() {
+    if (tagManagerBusy) {
+      return;
+    }
+
+    setTagManagerOpen(false);
+    setEditingTagId(null);
+    setPendingDeleteTagId(null);
+    setTagManagerError(null);
+    setTagManagerMessage(null);
+  }
+
+  async function createTag(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!newTagName.trim()) {
+      return;
+    }
+
+    setTagManagerBusy(true);
+    setTagManagerError(null);
+    setTagManagerMessage(null);
+    try {
+      const created = await window.localVideoManager.createTag(newTagName);
+      await refreshTags();
+      setNewTagName('');
+      setTagManagerMessage(`‘${created.name}’ 태그를 만들었습니다.`);
+    } catch {
+      setTagManagerError('같은 이름의 태그가 있거나 사용할 수 없는 이름입니다.');
+    } finally {
+      setTagManagerBusy(false);
+    }
+  }
+
+  function beginRenamingTag(tag: ManagedVideoTag) {
+    setEditingTagId(tag.id);
+    setEditingTagName(tag.name);
+    setPendingDeleteTagId(null);
+    setTagManagerError(null);
+    setTagManagerMessage(null);
+  }
+
+  async function renameTag(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingTagId || !editingTagName.trim()) {
+      return;
+    }
+
+    setTagManagerBusy(true);
+    setTagManagerError(null);
+    setTagManagerMessage(null);
+    try {
+      const renamed = await window.localVideoManager.renameTag(editingTagId, editingTagName);
+      await refreshTags();
+      setVideoPage((currentPage) =>
+        currentPage
+          ? {
+              ...currentPage,
+              items: currentPage.items.map((video) => ({
+                ...video,
+                tags: video.tags.map((tag) =>
+                  tag.id === renamed.id ? { id: renamed.id, name: renamed.name } : tag,
+                ),
+              })),
+            }
+          : currentPage,
+      );
+      setEditingTagId(null);
+      setEditingTagName('');
+      setTagManagerMessage(`‘${renamed.name}’ 태그로 수정했습니다.`);
+    } catch {
+      setTagManagerError('같은 이름의 태그가 있거나 사용할 수 없는 이름입니다.');
+    } finally {
+      setTagManagerBusy(false);
+    }
+  }
+
+  async function deleteTag(tag: ManagedVideoTag) {
+    setTagManagerBusy(true);
+    setTagManagerError(null);
+    setTagManagerMessage(null);
+    try {
+      await window.localVideoManager.deleteTag(tag.id);
+      await refreshTags();
+      setPendingDeleteTagId(null);
+      setLibraryTagId((currentTagId) => (currentTagId === tag.id ? null : currentTagId));
+      setSelectedVideoTagIds((tagIds) => tagIds.filter((tagId) => tagId !== tag.id));
+      setVideoPage((currentPage) =>
+        currentPage
+          ? {
+              ...currentPage,
+              items: currentPage.items.map((video) => ({
+                ...video,
+                tags: video.tags.filter((videoTag) => videoTag.id !== tag.id),
+              })),
+            }
+          : currentPage,
+      );
+
+      if (appliedLibraryQuery.tagId === tag.id) {
+        const nextQuery = { ...appliedLibraryQuery, tagId: null };
+        setLibraryTagId(null);
+        setAppliedLibraryQuery(nextQuery);
+        await loadVideoPage(0, nextQuery);
+      }
+      setTagManagerMessage(`‘${tag.name}’ 태그를 삭제했습니다. 영상 정보는 그대로 유지됩니다.`);
+    } catch {
+      setTagManagerError('태그를 삭제하지 못했습니다. 다시 시도하세요.');
+    } finally {
+      setTagManagerBusy(false);
+    }
+  }
+
   async function applyLibraryFilters(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const query = buildLibraryVideoQuery(
@@ -346,6 +511,7 @@ export function App() {
       librarySortOption,
       libraryDateFrom,
       libraryDateTo,
+      libraryTagId,
     );
     if (!query) {
       setLibraryFilterError('시작일은 종료일보다 늦을 수 없습니다. 날짜 범위를 확인하세요.');
@@ -391,6 +557,7 @@ export function App() {
     setMetadataSearchAttempted(false);
     setMetadataSearchError(null);
     setCopiedFromVideo(null);
+    setSelectedVideoTagIds(video.tags.map((tag) => tag.id));
     setLoadingMetadata(true);
 
     try {
@@ -414,6 +581,7 @@ export function App() {
     setMetadataSearchResults([]);
     setMetadataSearchError(null);
     setCopiedFromVideo(null);
+    setSelectedVideoTagIds([]);
   }
 
   async function searchMetadataSources() {
@@ -448,6 +616,16 @@ export function App() {
     setMetadataError(null);
   }
 
+  function toggleVideoTag(tagId: number) {
+    setSelectedVideoTagIds((tagIds) =>
+      tagIds.includes(tagId)
+        ? tagIds.filter((selectedTagId) => selectedTagId !== tagId)
+        : [...tagIds, tagId],
+    );
+    setMetadataSaved(false);
+    setMetadataError(null);
+  }
+
   async function saveMetadata(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!editingVideo) {
@@ -459,14 +637,30 @@ export function App() {
     setMetadataSaved(false);
 
     try {
-      const detail = await window.localVideoManager.saveVideoMetadata(
+      const hasMetadataInput = Boolean(sourceUrl.trim() || sourceCaption.trim());
+      if (videoMetadata?.current && !hasMetadataInput) {
+        setMetadataError('기존 URL과 캡션을 모두 비울 수 없습니다. 한 가지 이상 입력하세요.');
+        return;
+      }
+
+      const detail = hasMetadataInput
+        ? await window.localVideoManager.saveVideoMetadata(
+            editingVideo.contentHash,
+            {
+              sourceCaption,
+              sourceUrl,
+            },
+            copiedFromVideo?.contentHash ?? null,
+          )
+        : videoMetadata;
+      const assignedTags = await window.localVideoManager.setVideoTags(
         editingVideo.contentHash,
-        {
-          sourceCaption,
-          sourceUrl,
-        },
-        copiedFromVideo?.contentHash ?? null,
+        selectedVideoTagIds,
       );
+      if (!detail) {
+        throw new Error('Video metadata was not loaded.');
+      }
+
       setVideoMetadata(detail);
       setSourceUrl(detail.current?.sourceUrl ?? '');
       setSourceCaption(detail.current?.sourceCaption ?? '');
@@ -478,6 +672,7 @@ export function App() {
               ...currentVideo,
               metadataRegistered: detail.current !== null,
               metadataUpdatedAt: detail.current?.updatedAt ?? null,
+              tags: assignedTags,
             }
           : currentVideo,
       );
@@ -491,14 +686,16 @@ export function App() {
                       ...video,
                       metadataRegistered: detail.current !== null,
                       metadataUpdatedAt: detail.current?.updatedAt ?? null,
+                      tags: assignedTags,
                     }
                   : video,
               ),
             }
           : currentPage,
       );
+      await Promise.all([refreshTags(), loadVideoPage(videoPage?.pageIndex ?? 0)]);
     } catch {
-      setMetadataError('URL 또는 캡션을 확인한 뒤 다시 저장하세요.');
+      setMetadataError('입력한 URL·캡션과 태그를 확인한 뒤 다시 저장하세요.');
     } finally {
       setSavingMetadata(false);
     }
@@ -634,6 +831,23 @@ export function App() {
                           <small>관리할 로컬 폴더 선택</small>
                         </span>
                       </button>
+                      <button type="button" role="menuitem" onClick={openTagManager}>
+                        <span className="settings-item-icon">
+                          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path
+                              d="M4 5.5A1.5 1.5 0 0 1 5.5 4H13l7 7-8.5 8.5L4 12V5.5Z"
+                              stroke="currentColor"
+                              strokeWidth="1.7"
+                              strokeLinejoin="round"
+                            />
+                            <circle cx="8" cy="8" r="1.3" fill="currentColor" />
+                          </svg>
+                        </span>
+                        <span>
+                          <strong>태그 관리</strong>
+                          <small>태그 생성, 이름 수정 및 삭제</small>
+                        </span>
+                      </button>
                       <div className="settings-menu-divider" />
                       <button
                         type="button"
@@ -741,7 +955,7 @@ export function App() {
                   </span>
                   <span>
                     <strong>검색 및 필터</strong>
-                    <small>파일명과 날짜 조건으로 원하는 영상을 찾습니다.</small>
+                    <small>파일명, 태그와 날짜 조건으로 원하는 영상을 찾습니다.</small>
                   </span>
                 </div>
                 <label className="library-filter-field library-filter-search">
@@ -757,6 +971,24 @@ export function App() {
                     maxLength={VIDEO_LIBRARY_SEARCH_MAX_LENGTH}
                     disabled={loadingVideos}
                   />
+                </label>
+                <label className="library-filter-field library-filter-tag">
+                  <span>태그</span>
+                  <select
+                    value={libraryTagId ?? ''}
+                    onChange={(event) => {
+                      setLibraryTagId(event.target.value ? Number(event.target.value) : null);
+                      setLibraryFilterError(null);
+                    }}
+                    disabled={loadingVideos}
+                  >
+                    <option value="">전체 태그</option>
+                    {tags.map((tag) => (
+                      <option key={tag.id} value={tag.id}>
+                        {tag.name} ({tag.videoCount})
+                      </option>
+                    ))}
+                  </select>
                 </label>
                 <label className="library-filter-field library-filter-sort">
                   <span>정렬</span>
@@ -867,6 +1099,13 @@ export function App() {
                         <span className="video-relative-path" title={video.relativePath}>
                           {video.relativePath}
                         </span>
+                        {video.tags.length ? (
+                          <div className="video-card-tags" aria-label="영상 태그">
+                            {video.tags.map((tag) => (
+                              <span key={tag.id}>#{tag.name}</span>
+                            ))}
+                          </div>
+                        ) : null}
                         <div className="video-meta">
                           <span>{formatFileSize(video.sizeBytes)}</span>
                           <span title={video.contentHash}>
@@ -879,14 +1118,16 @@ export function App() {
                         </div>
                         <button
                           className={
-                            video.metadataRegistered
+                            video.metadataRegistered || video.tags.length > 0
                               ? 'metadata-button metadata-button-registered'
                               : 'metadata-button'
                           }
                           type="button"
                           onClick={() => void openMetadataEditor(video)}
                         >
-                          {video.metadataRegistered ? '정보 수정' : '정보 등록'}
+                          {video.metadataRegistered || video.tags.length > 0
+                            ? '정보·태그 수정'
+                            : '정보·태그 등록'}
                         </button>
                       </div>
                     </article>
@@ -1241,6 +1482,191 @@ export function App() {
         </div>
       ) : null}
 
+      {tagManagerOpen ? (
+        <div
+          className="tag-manager-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeTagManager();
+            }
+          }}
+        >
+          <section
+            className="tag-manager-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="tag-manager-title"
+          >
+            <header className="tag-manager-header">
+              <div>
+                <p className="eyebrow">PERSONALIZE YOUR LIBRARY</p>
+                <h2 id="tag-manager-title">태그 관리</h2>
+                <p>업무에 맞는 태그를 만들고 이름과 사용 상태를 관리하세요.</p>
+              </div>
+              <button
+                className="metadata-close-button"
+                type="button"
+                onClick={closeTagManager}
+                aria-label="태그 관리 닫기"
+                disabled={tagManagerBusy}
+              >
+                ×
+              </button>
+            </header>
+
+            <div className="tag-manager-body">
+              <form className="tag-create-form" onSubmit={(event) => void createTag(event)}>
+                <label htmlFor="new-tag-name">새 태그</label>
+                <div>
+                  <input
+                    id="new-tag-name"
+                    value={newTagName}
+                    onChange={(event) => {
+                      setNewTagName(event.target.value);
+                      setTagManagerError(null);
+                      setTagManagerMessage(null);
+                    }}
+                    placeholder="예: 유머, 일본어, 인기 영상"
+                    maxLength={VIDEO_TAG_NAME_MAX_LENGTH}
+                    disabled={tagManagerBusy}
+                    autoFocus
+                  />
+                  <button
+                    className="primary-button"
+                    type="submit"
+                    disabled={tagManagerBusy || !newTagName.trim()}
+                  >
+                    {tagManagerBusy ? '처리 중…' : '태그 만들기'}
+                  </button>
+                </div>
+                <small>공백을 제외한 {VIDEO_TAG_NAME_MAX_LENGTH}자까지 입력할 수 있습니다.</small>
+              </form>
+
+              {tagManagerError ? (
+                <p className="tag-manager-notice tag-manager-notice-error" role="alert">
+                  {tagManagerError}
+                </p>
+              ) : null}
+              {tagManagerMessage ? (
+                <p className="tag-manager-notice" role="status">
+                  {tagManagerMessage}
+                </p>
+              ) : null}
+
+              <div className="tag-list-heading">
+                <div>
+                  <strong>등록된 태그</strong>
+                  <span>영상 수는 해당 태그가 지정된 전체 영상 기준입니다.</span>
+                </div>
+                <span>{tags.length}개</span>
+              </div>
+
+              {tags.length ? (
+                <ul className="tag-manager-list">
+                  {tags.map((tag) => (
+                    <li key={tag.id}>
+                      {editingTagId === tag.id ? (
+                        <form
+                          className="tag-rename-form"
+                          onSubmit={(event) => void renameTag(event)}
+                        >
+                          <input
+                            value={editingTagName}
+                            onChange={(event) => {
+                              setEditingTagName(event.target.value);
+                              setTagManagerError(null);
+                            }}
+                            maxLength={VIDEO_TAG_NAME_MAX_LENGTH}
+                            disabled={tagManagerBusy}
+                            aria-label={`${tag.name} 태그 새 이름`}
+                            autoFocus
+                          />
+                          <button
+                            className="tag-row-save"
+                            type="submit"
+                            disabled={tagManagerBusy || !editingTagName.trim()}
+                          >
+                            저장
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingTagId(null);
+                              setEditingTagName('');
+                              setTagManagerError(null);
+                            }}
+                            disabled={tagManagerBusy}
+                          >
+                            취소
+                          </button>
+                        </form>
+                      ) : (
+                        <div className="tag-manager-row">
+                          <div className="tag-manager-name">
+                            <span aria-hidden="true">#</span>
+                            <strong>{tag.name}</strong>
+                            <small>{tag.videoCount.toLocaleString()}개 영상</small>
+                          </div>
+                          <div className="tag-manager-actions">
+                            <button
+                              type="button"
+                              onClick={() => beginRenamingTag(tag)}
+                              disabled={tagManagerBusy}
+                            >
+                              이름 수정
+                            </button>
+                            <button
+                              className="tag-delete-button"
+                              type="button"
+                              onClick={() => {
+                                setPendingDeleteTagId(tag.id);
+                                setEditingTagId(null);
+                                setTagManagerError(null);
+                                setTagManagerMessage(null);
+                              }}
+                              disabled={tagManagerBusy}
+                            >
+                              삭제
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {pendingDeleteTagId === tag.id ? (
+                        <div className="tag-delete-confirm" role="alert">
+                          <span>‘{tag.name}’ 태그만 삭제하며 영상과 등록 정보는 유지됩니다.</span>
+                          <div>
+                            <button
+                              type="button"
+                              onClick={() => setPendingDeleteTagId(null)}
+                              disabled={tagManagerBusy}
+                            >
+                              취소
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void deleteTag(tag)}
+                              disabled={tagManagerBusy}
+                            >
+                              태그 삭제
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="tag-manager-empty">
+                  <strong>아직 만든 태그가 없습니다.</strong>
+                  <span>위 입력창에서 첫 태그를 만들어 보세요.</span>
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       {playingVideo?.playbackUrl ? (
         <div
           className="player-backdrop"
@@ -1313,7 +1739,9 @@ export function App() {
               <div>
                 <p className="eyebrow">SOURCE INFORMATION</p>
                 <h2 id="metadata-title" title={editingVideo.fileName}>
-                  {editingVideo.metadataRegistered ? '영상 정보 수정' : '영상 정보 등록'}
+                  {editingVideo.metadataRegistered || editingVideo.tags.length > 0
+                    ? '영상 정보 및 태그 수정'
+                    : '영상 정보 및 태그 등록'}
                 </h2>
                 <p title={editingVideo.fileName}>{editingVideo.fileName}</p>
               </div>
@@ -1429,6 +1857,41 @@ export function App() {
                 </p>
               ) : null}
 
+              <section className="video-tag-editor" aria-labelledby="video-tag-editor-title">
+                <div className="video-tag-editor-heading">
+                  <div>
+                    <strong id="video-tag-editor-title">영상 태그</strong>
+                    <span>하나의 영상에 여러 태그를 지정할 수 있습니다.</span>
+                  </div>
+                  <small>{selectedVideoTagIds.length}개 선택</small>
+                </div>
+                {tags.length ? (
+                  <div className="video-tag-options">
+                    {tags.map((tag) => {
+                      const selected = selectedVideoTagIds.includes(tag.id);
+                      return (
+                        <button
+                          className={selected ? 'video-tag-option selected' : 'video-tag-option'}
+                          type="button"
+                          key={tag.id}
+                          onClick={() => toggleVideoTag(tag.id)}
+                          disabled={loadingMetadata || savingMetadata}
+                          aria-pressed={selected}
+                        >
+                          <span aria-hidden="true">#</span>
+                          {tag.name}
+                          {selected ? <i aria-hidden="true">✓</i> : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="video-tag-empty">
+                    설정 메뉴의 <strong>태그 관리</strong>에서 태그를 먼저 만들어 주세요.
+                  </p>
+                )}
+              </section>
+
               <label>
                 <span>원본 URL</span>
                 <input
@@ -1486,13 +1949,9 @@ export function App() {
                 <button
                   className="primary-button"
                   type="submit"
-                  disabled={
-                    loadingMetadata ||
-                    savingMetadata ||
-                    (!sourceUrl.trim() && !sourceCaption.trim())
-                  }
+                  disabled={loadingMetadata || savingMetadata}
                 >
-                  {savingMetadata ? '저장 중…' : '정보 저장'}
+                  {savingMetadata ? '저장 중…' : '정보 및 태그 저장'}
                 </button>
               </div>
             </form>

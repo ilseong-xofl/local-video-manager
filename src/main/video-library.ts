@@ -31,6 +31,10 @@ export function parseLibraryVideoQuery(value: unknown): LibraryVideoQuery {
     query.searchQuery.length > VIDEO_LIBRARY_SEARCH_MAX_LENGTH ||
     (query.sortField !== 'registeredAt' && query.sortField !== 'modifiedAt') ||
     (query.sortDirection !== 'asc' && query.sortDirection !== 'desc') ||
+    (query.tagId !== null &&
+      (typeof query.tagId !== 'number' ||
+        !Number.isSafeInteger(query.tagId) ||
+        query.tagId <= 0)) ||
     !isValidDateMs(query.dateFromMs) ||
     !isValidDateMs(query.dateToMs) ||
     query.dateFromMs > query.dateToMs
@@ -44,6 +48,7 @@ export function parseLibraryVideoQuery(value: unknown): LibraryVideoQuery {
     searchQuery: query.searchQuery.trim(),
     sortDirection: query.sortDirection,
     sortField: query.sortField,
+    tagId: query.tagId,
   };
 }
 
@@ -98,6 +103,7 @@ export async function getLibraryVideoPage(
       ...video,
       fileAvailable,
       playbackUrl: fileAvailable ? buildVideoPlaybackUrl(video.contentHash) : null,
+      tags: database.getVideoTags(video.contentHash),
       thumbnailDataUrl,
     });
   }

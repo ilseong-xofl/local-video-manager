@@ -4,6 +4,11 @@ export const IPC_CHANNELS = {
   restoreDatabaseBackup: 'database:restore-backup',
   chooseLibraryRoot: 'library:choose-root',
   getLibraryVideoPage: 'library:get-video-page',
+  getTags: 'tags:get-all',
+  createTag: 'tags:create',
+  renameTag: 'tags:rename',
+  deleteTag: 'tags:delete',
+  setVideoTags: 'tags:set-for-video',
   getVideoMetadata: 'library:get-video-metadata',
   searchVideoMetadata: 'library:search-video-metadata',
   saveVideoMetadata: 'library:save-video-metadata',
@@ -14,6 +19,7 @@ export const VIDEO_SOURCE_URL_MAX_LENGTH = 2_048;
 export const VIDEO_SOURCE_CAPTION_MAX_LENGTH = 50_000;
 export const VIDEO_METADATA_SEARCH_MAX_LENGTH = 200;
 export const VIDEO_LIBRARY_SEARCH_MAX_LENGTH = 200;
+export const VIDEO_TAG_NAME_MAX_LENGTH = 40;
 
 export type LibraryVideoSortDirection = 'asc' | 'desc';
 export type LibraryVideoSortField = 'modifiedAt' | 'registeredAt';
@@ -24,6 +30,16 @@ export interface LibraryVideoQuery {
   searchQuery: string;
   sortDirection: LibraryVideoSortDirection;
   sortField: LibraryVideoSortField;
+  tagId: number | null;
+}
+
+export interface VideoTag {
+  id: number;
+  name: string;
+}
+
+export interface ManagedVideoTag extends VideoTag {
+  videoCount: number;
 }
 
 export interface LibraryStats {
@@ -55,6 +71,7 @@ export interface LibraryVideo {
 export interface LibraryVideoItem extends LibraryVideo {
   fileAvailable: boolean;
   playbackUrl: string | null;
+  tags: VideoTag[];
   thumbnailDataUrl: string | null;
 }
 
@@ -129,6 +146,11 @@ export interface LocalVideoManagerApi {
   createDatabaseBackup(): Promise<DatabaseBackupResult>;
   restoreDatabaseBackup(): Promise<DatabaseRestoreResult>;
   chooseLibraryRoot(): Promise<ChooseLibraryRootResult>;
+  getTags(): Promise<ManagedVideoTag[]>;
+  createTag(name: string): Promise<ManagedVideoTag>;
+  renameTag(id: number, name: string): Promise<ManagedVideoTag>;
+  deleteTag(id: number): Promise<void>;
+  setVideoTags(contentHash: string, tagIds: number[]): Promise<VideoTag[]>;
   getLibraryVideoPage(pageIndex: number, query: LibraryVideoQuery): Promise<LibraryVideoPage>;
   getVideoMetadata(contentHash: string): Promise<VideoMetadataDetail>;
   searchVideoMetadata(
