@@ -145,16 +145,24 @@ h2 {
 }
 
 .app-brand-copy strong,
+.app-brand-title,
 .app-brand-copy span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.app-brand-copy strong {
+.app-brand-copy strong,
+.app-brand-title {
   color: #17202e;
   font-size: 14px;
   letter-spacing: -0.01em;
+}
+
+.app-brand-title {
+  margin: 0;
+  font-weight: 800;
+  line-height: normal;
 }
 
 .app-brand-copy span {
@@ -622,24 +630,6 @@ h2 {
   margin: 0 auto;
 }
 
-.library-brand-area {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 20px;
-}
-
-.library-view-title {
-  margin: 0;
-  padding-left: 20px;
-  border-left: 1px solid #e2e5eb;
-  color: #5556c8;
-  font-size: 15px;
-  font-weight: 800;
-  letter-spacing: -0.01em;
-  white-space: nowrap;
-}
-
 .library-toolbar {
   display: flex;
   align-items: center;
@@ -824,7 +814,7 @@ h2 {
 .library-content {
   width: min(1320px, calc(100% - 64px));
   margin: 0 auto;
-  padding: 42px 0 54px;
+  padding: 24px 0 54px;
 }
 
 .app-notice {
@@ -1097,7 +1087,8 @@ h2 {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding-bottom: 3px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f0f1f4;
   grid-column: 1 / -1;
 }
 
@@ -1178,7 +1169,7 @@ h2 {
 .library-filter-field select {
   width: 100%;
   min-width: 0;
-  height: 43px;
+  height: 40px;
   padding: 0 12px;
   border: 1px solid #d9dde5;
   border-radius: 10px;
@@ -1212,7 +1203,7 @@ h2 {
 .library-filter-submit {
   align-self: end;
   min-width: 82px;
-  min-height: 43px;
+  min-height: 40px;
   padding: 0 15px;
 }
 
@@ -2724,10 +2715,6 @@ h2 {
   }
 
   .library-total {
-    display: none;
-  }
-
-  .library-view-title {
     display: none;
   }
 

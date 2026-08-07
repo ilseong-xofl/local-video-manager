@@ -861,19 +861,16 @@ export function App() {
         <>
           <header className="library-topbar">
             <div className="library-topbar-inner">
-              <div className="library-brand-area">
-                <div className="app-brand">
-                  <span className="app-brand-mark">
-                    <BrandIcon />
-                  </span>
-                  <div className="app-brand-copy">
-                    <strong>Local Video Manager</strong>
-                    <span title={state.libraryRoot ?? undefined}>{activeFolderName}</span>
-                  </div>
+              <div className="app-brand">
+                <span className="app-brand-mark">
+                  <BrandIcon />
+                </span>
+                <div className="app-brand-copy">
+                  <h1 className="app-brand-title" id="video-library-heading">
+                    My Video Library
+                  </h1>
+                  <span title={state.libraryRoot ?? undefined}>{activeFolderName}</span>
                 </div>
-                <h1 className="library-view-title" id="video-library-heading">
-                  My Video Library
-                </h1>
               </div>
 
               <div className="library-toolbar">
