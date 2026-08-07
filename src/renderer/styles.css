@@ -1245,14 +1245,12 @@ h2 {
   box-shadow: 0 8px 24px rgba(25, 34, 49, 0.055);
   transition:
     border-color 180ms ease,
-    box-shadow 180ms ease,
-    transform 180ms ease;
+    box-shadow 180ms ease;
 }
 
 .video-card:hover {
   border-color: #d3d6ee;
   box-shadow: 0 16px 34px rgba(25, 34, 49, 0.1);
-  transform: translateY(-3px);
 }
 
 .thumbnail-frame {
