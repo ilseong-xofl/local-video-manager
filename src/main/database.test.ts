@@ -1,6 +1,6 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -107,7 +107,7 @@ describe('AppDatabase', () => {
     expect(applyPendingDatabaseRestore(databasePath, pendingRestorePath)).toBe(true);
     const restoredDatabase = new AppDatabase(databasePath);
     expect(restoredDatabase.getOrCreateLibraryId()).toBe(libraryId);
-    expect(restoredDatabase.getLibraryRoot()).toBe('/videos');
+    expect(restoredDatabase.getLibraryRoot()).toBe(resolve('/videos'));
     expect(restoredDatabase.getVideoMetadata(contentHash).current).toMatchObject({
       sourceCaption: '백업 시점 캡션',
       sourceUrl: 'https://example.com/original',
@@ -143,7 +143,7 @@ describe('AppDatabase', () => {
         '0.1.1',
       ),
     ).rejects.toThrow('Invalid Local Video Manager database backup.');
-    expect(database.getLibraryRoot()).toBe('/videos');
+    expect(database.getLibraryRoot()).toBe(resolve('/videos'));
     expect(existsSync(pendingRestorePath)).toBe(false);
     expect(existsSync(automaticBackupPath)).toBe(false);
     database.close();
@@ -176,7 +176,7 @@ describe('AppDatabase', () => {
     expect(existsSync(pendingRestorePath)).toBe(false);
 
     const reopenedDatabase = new AppDatabase(databasePath);
-    expect(reopenedDatabase.getLibraryRoot()).toBe('/videos');
+    expect(reopenedDatabase.getLibraryRoot()).toBe(resolve('/videos'));
     reopenedDatabase.close();
   });
 
@@ -185,7 +185,7 @@ describe('AppDatabase', () => {
     expect(database.getLibraryRoot()).toBeNull();
 
     database.setLibraryRoot('/videos');
-    expect(database.getLibraryRoot()).toBe('/videos');
+    expect(database.getLibraryRoot()).toBe(resolve('/videos'));
     database.close();
   });
 
@@ -798,7 +798,7 @@ describe('AppDatabase', () => {
 
     const migrated = new AppDatabase(databasePath);
 
-    expect(migrated.getLibraryRoot()).toBe('/legacy-videos');
+    expect(migrated.getLibraryRoot()).toBe(resolve('/legacy-videos'));
     expect(migrated.getLibraryStats()).toEqual({
       fileCount: 1,
       lastScannedAt: '2026-08-06T02:00:00.000Z',
