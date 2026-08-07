@@ -1274,7 +1274,7 @@ export function App() {
                           </span>
                         </div>
                         <div className="video-dates">
-                          <span>등록 {formatVideoDate(video.registeredAt)}</span>
+                          <span>DB 등록 {formatVideoDate(video.registeredAt)}</span>
                           <span>수정 {formatVideoDate(video.modifiedAtMs)}</span>
                         </div>
                         <button

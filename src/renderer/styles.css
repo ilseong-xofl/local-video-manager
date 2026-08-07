@@ -1374,12 +1374,15 @@ h2 {
 }
 
 .video-thumbnail-tags > span {
-  padding: 5px 8px;
+  display: inline-flex;
+  height: 32px;
+  padding: 0 10px;
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 999px;
   color: white;
   font-size: 8px;
   font-weight: 850;
+  align-items: center;
   backdrop-filter: blur(8px);
 }
 
@@ -1402,9 +1405,10 @@ h2 {
   top: 10px;
   right: 10px;
   display: flex;
+  height: 32px;
   align-items: center;
-  gap: 3px;
-  padding: 4px;
+  gap: 2px;
+  padding: 3px 4px;
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 999px;
   background: rgba(13, 17, 24, 0.66);
@@ -1414,9 +1418,9 @@ h2 {
 
 .video-thumbnail-reaction-button {
   display: grid;
-  width: 30px;
-  height: 28px;
-  padding: 5px;
+  width: 27px;
+  height: 24px;
+  padding: 4px;
   border: 0;
   border-radius: 999px;
   outline: none;
@@ -1456,7 +1460,7 @@ h2 {
 
 .video-thumbnail-reaction-divider {
   width: 1px;
-  height: 20px;
+  height: 18px;
   background: rgba(255, 255, 255, 0.28);
 }
 
