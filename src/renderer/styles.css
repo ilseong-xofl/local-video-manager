@@ -1581,18 +1581,28 @@ h2 {
   font-weight: 600;
 }
 
-.metadata-button {
+.video-card-actions {
+  display: grid;
+  margin-top: 2px;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.metadata-button,
+.video-edit-button {
   width: 100%;
   min-height: 36px;
-  margin-top: 2px;
   padding: 0 12px;
   border: 1px solid #d9dce4;
   border-radius: 9px;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.metadata-button {
   background: #f8f9fb;
   color: #5556c8;
   cursor: pointer;
-  font-size: 10px;
-  font-weight: 800;
   transition:
     border-color 150ms ease,
     background 150ms ease;
@@ -1608,6 +1618,13 @@ h2 {
   border-color: #cce7dc;
   background: #eef8f4;
   color: #287d5d;
+}
+
+.video-edit-button {
+  border-color: #e1e3e8;
+  background: #f3f4f7;
+  color: #969daa;
+  cursor: not-allowed;
 }
 
 .pagination {

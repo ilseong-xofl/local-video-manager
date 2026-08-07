@@ -1332,19 +1332,29 @@ export function App() {
                             </span>
                           </span>
                         </div>
-                        <button
-                          className={
-                            video.metadataRegistered || video.tags.length > 0
-                              ? 'metadata-button metadata-button-registered'
-                              : 'metadata-button'
-                          }
-                          type="button"
-                          onClick={() => void openMetadataEditor(video)}
-                        >
-                          {video.metadataRegistered || video.tags.length > 0
-                            ? '정보·태그 수정'
-                            : '정보·태그 등록'}
-                        </button>
+                        <div className="video-card-actions">
+                          <button
+                            className={
+                              video.metadataRegistered || video.tags.length > 0
+                                ? 'metadata-button metadata-button-registered'
+                                : 'metadata-button'
+                            }
+                            type="button"
+                            onClick={() => void openMetadataEditor(video)}
+                          >
+                            {video.metadataRegistered || video.tags.length > 0
+                              ? '정보 수정'
+                              : '정보 등록'}
+                          </button>
+                          <button
+                            className="video-edit-button"
+                            type="button"
+                            disabled
+                            title="페이즈 2에서 제공 예정"
+                          >
+                            영상 편집
+                          </button>
+                        </div>
                       </div>
                     </article>
                   ))}
