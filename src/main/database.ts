@@ -74,6 +74,7 @@ interface LibraryVideoRow {
   registeredAt: string;
   relativePath: string;
   sizeBytes: number;
+  sourceUrl: string | null;
 }
 
 interface MetadataSearchRow {
@@ -468,7 +469,8 @@ export class AppDatabase {
             videos.reaction,
             videos.created_at AS registeredAt,
             ranked_files.relativePath,
-            ranked_files.sizeBytes
+            ranked_files.sizeBytes,
+            video_metadata.source_url AS sourceUrl
           FROM ranked_files
           JOIN videos ON videos.content_hash = ranked_files.contentHash
           LEFT JOIN video_metadata
@@ -549,7 +551,8 @@ export class AppDatabase {
             videos.reaction,
             videos.created_at AS registeredAt,
             video_files.relative_path AS relativePath,
-            video_files.size_bytes AS sizeBytes
+            video_files.size_bytes AS sizeBytes,
+            video_metadata.source_url AS sourceUrl
           FROM video_files
           JOIN videos ON videos.content_hash = video_files.content_hash
           LEFT JOIN video_metadata

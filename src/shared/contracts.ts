@@ -4,6 +4,8 @@ export const IPC_CHANNELS = {
   restoreDatabaseBackup: 'database:restore-backup',
   chooseLibraryRoot: 'library:choose-root',
   getLibraryVideoPage: 'library:get-video-page',
+  openVideoSourceUrl: 'library:open-source-url',
+  revealVideoFile: 'library:reveal-video-file',
   getTags: 'tags:get-all',
   createTag: 'tags:create',
   renameTag: 'tags:rename',
@@ -71,6 +73,7 @@ export interface LibraryVideo {
   registeredAt: string;
   relativePath: string;
   sizeBytes: number;
+  sourceUrl: string | null;
 }
 
 export interface LibraryVideoItem extends LibraryVideo {
@@ -161,6 +164,8 @@ export interface LocalVideoManagerApi {
     reaction: VideoReaction | null,
   ): Promise<VideoReaction | null>;
   getLibraryVideoPage(pageIndex: number, query: LibraryVideoQuery): Promise<LibraryVideoPage>;
+  openVideoSourceUrl(contentHash: string): Promise<void>;
+  revealVideoFile(contentHash: string): Promise<void>;
   getVideoMetadata(contentHash: string): Promise<VideoMetadataDetail>;
   searchVideoMetadata(
     query: string,

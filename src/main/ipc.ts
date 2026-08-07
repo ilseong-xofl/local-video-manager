@@ -6,6 +6,7 @@ import {
   BrowserWindow,
   dialog,
   ipcMain,
+  shell,
   type OpenDialogOptions,
   type SaveDialogOptions,
 } from 'electron';
@@ -19,7 +20,7 @@ import {
   type ScanLibraryResult,
 } from '../shared/contracts';
 import type { AppDatabase } from './database';
-import type { ThumbnailCache } from './thumbnail-cache';
+import { resolveLibraryFilePath, type ThumbnailCache } from './thumbnail-cache';
 import { getLibraryVideoPage, parseVideoReaction } from './video-library';
 import {
   parseContentHash,
@@ -160,6 +161,35 @@ export function registerIpcHandlers(
     getLibraryVideoPage(database, thumbnailCache, pageIndex, query),
   );
 
+  ipcMain.handle(IPC_CHANNELS.openVideoSourceUrl, async (_event, contentHash: unknown) => {
+    const video = database.getLibraryVideoByHash(parseContentHash(contentHash));
+    if (!video?.sourceUrl) {
+      throw new Error('The video does not have a source URL.');
+    }
+
+    const { sourceUrl } = parseVideoMetadataInput({
+      sourceCaption: null,
+      sourceUrl: video.sourceUrl,
+    });
+    if (!sourceUrl) {
+      throw new Error('The video does not have a source URL.');
+    }
+
+    await shell.openExternal(sourceUrl);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.revealVideoFile, (_event, contentHash: unknown) => {
+    const libraryRoot = database.getLibraryRoot();
+    const video = database.getLibraryVideoByHash(parseContentHash(contentHash));
+    const filePath =
+      libraryRoot && video ? resolveLibraryFilePath(libraryRoot, video.relativePath) : null;
+    if (!filePath) {
+      throw new Error('The video file location is not available.');
+    }
+
+    shell.showItemInFolder(filePath);
+  });
+
   ipcMain.handle(IPC_CHANNELS.getTags, () => database.getTags());
 
   ipcMain.handle(IPC_CHANNELS.createTag, (_event, name: unknown) =>
@@ -261,6 +291,8 @@ export function registerIpcHandlers(
     ipcMain.removeHandler(IPC_CHANNELS.restoreDatabaseBackup);
     ipcMain.removeHandler(IPC_CHANNELS.chooseLibraryRoot);
     ipcMain.removeHandler(IPC_CHANNELS.getLibraryVideoPage);
+    ipcMain.removeHandler(IPC_CHANNELS.openVideoSourceUrl);
+    ipcMain.removeHandler(IPC_CHANNELS.revealVideoFile);
     ipcMain.removeHandler(IPC_CHANNELS.getTags);
     ipcMain.removeHandler(IPC_CHANNELS.createTag);
     ipcMain.removeHandler(IPC_CHANNELS.renameTag);

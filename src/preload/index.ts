@@ -17,6 +17,9 @@ const api: LocalVideoManagerApi = {
     ipcRenderer.invoke(IPC_CHANNELS.setVideoReaction, contentHash, reaction),
   getLibraryVideoPage: (pageIndex, query) =>
     ipcRenderer.invoke(IPC_CHANNELS.getLibraryVideoPage, pageIndex, query),
+  openVideoSourceUrl: (contentHash) =>
+    ipcRenderer.invoke(IPC_CHANNELS.openVideoSourceUrl, contentHash),
+  revealVideoFile: (contentHash) => ipcRenderer.invoke(IPC_CHANNELS.revealVideoFile, contentHash),
   getVideoMetadata: (contentHash) => ipcRenderer.invoke(IPC_CHANNELS.getVideoMetadata, contentHash),
   searchVideoMetadata: (query, excludeContentHash) =>
     ipcRenderer.invoke(IPC_CHANNELS.searchVideoMetadata, query, excludeContentHash),

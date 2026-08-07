@@ -284,6 +284,7 @@ describe('AppDatabase', () => {
         registeredAt: expect.any(String),
         relativePath: 'first.mp4',
         sizeBytes: 10,
+        sourceUrl: null,
       },
       {
         contentHash: secondHash,
@@ -295,6 +296,7 @@ describe('AppDatabase', () => {
         registeredAt: expect.any(String),
         relativePath: 'middle.mov',
         sizeBytes: 10,
+        sourceUrl: null,
       },
     ]);
     expect(database.getLibraryVideos(2, 2)).toEqual([
@@ -308,6 +310,7 @@ describe('AppDatabase', () => {
         registeredAt: expect.any(String),
         relativePath: 'z-last.webm',
         sizeBytes: 10,
+        sourceUrl: null,
       },
     ]);
     database.close();
@@ -542,6 +545,7 @@ describe('AppDatabase', () => {
       registeredAt: expect.any(String),
       relativePath: 'first.mp4',
       sizeBytes: 10,
+      sourceUrl: null,
     });
     expect(database.getLibraryVideoByHash('b'.repeat(64))).toBeNull();
     database.close();
@@ -584,6 +588,7 @@ describe('AppDatabase', () => {
     expect(database.getLibraryVideos(24, 0)[0]).toMatchObject({
       metadataRegistered: true,
       metadataUpdatedAt: expect.any(String),
+      sourceUrl: 'https://www.instagram.com/reel/example/',
     });
 
     const unchanged = database.saveVideoMetadata(contentHash, {

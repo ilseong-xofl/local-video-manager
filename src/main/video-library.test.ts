@@ -60,6 +60,10 @@ describe('getLibraryVideoPage', () => {
     );
     const tag = database.createVideoTag('유머');
     database.setVideoTags('a'.repeat(64), [tag.id]);
+    database.saveVideoMetadata('a'.repeat(64), {
+      sourceCaption: null,
+      sourceUrl: 'https://www.instagram.com/reel/example/',
+    });
     const createThumbnail = vi.fn(async () => Buffer.from('thumbnail'));
     const thumbnailCache = new ThumbnailCache(join(directory, 'thumbnails'), createThumbnail);
 
@@ -73,6 +77,7 @@ describe('getLibraryVideoPage', () => {
       fileName: 'first.mp4',
       playbackUrl: `local-video://media/${'a'.repeat(64)}`,
       relativePath: 'first.mp4',
+      sourceUrl: 'https://www.instagram.com/reel/example/',
       tags: [{ id: tag.id, name: '유머' }],
       thumbnailDataUrl: expect.stringMatching(/^data:image\/jpeg;base64,/),
     });

@@ -619,6 +619,32 @@ export function App() {
     setPlaybackError(false);
   }
 
+  async function openVideoSourceUrl(video: LibraryVideoItem) {
+    if (!video.sourceUrl) {
+      return;
+    }
+
+    setError(null);
+    try {
+      await window.localVideoManager.openVideoSourceUrl(video.contentHash);
+    } catch {
+      setError('원본 URL을 열지 못했습니다. 다시 시도하세요.');
+    }
+  }
+
+  async function revealVideoFile(video: LibraryVideoItem) {
+    if (!video.fileAvailable) {
+      return;
+    }
+
+    setError(null);
+    try {
+      await window.localVideoManager.revealVideoFile(video.contentHash);
+    } catch {
+      setError('영상 파일 위치를 열지 못했습니다. 다시 불러온 후 시도하세요.');
+    }
+  }
+
   async function openVideoDetails(video: LibraryVideoItem) {
     setViewingVideo(video);
     setViewingMetadata(null);
@@ -770,6 +796,7 @@ export function App() {
               ...currentVideo,
               metadataRegistered: detail.current !== null,
               metadataUpdatedAt: detail.current?.updatedAt ?? null,
+              sourceUrl: detail.current?.sourceUrl ?? null,
               tags: assignedTags,
             }
           : currentVideo,
@@ -784,6 +811,7 @@ export function App() {
                       ...video,
                       metadataRegistered: detail.current !== null,
                       metadataUpdatedAt: detail.current?.updatedAt ?? null,
+                      sourceUrl: detail.current?.sourceUrl ?? null,
                       tags: assignedTags,
                     }
                   : video,
@@ -1264,14 +1292,29 @@ export function App() {
                         >
                           {video.fileName}
                         </button>
-                        <span className="video-relative-path" title={video.relativePath}>
-                          {video.relativePath}
-                        </span>
+                        {video.sourceUrl ? (
+                          <button
+                            className="video-source-url"
+                            type="button"
+                            title={video.sourceUrl}
+                            onClick={() => void openVideoSourceUrl(video)}
+                          >
+                            {video.sourceUrl}
+                          </button>
+                        ) : (
+                          <span className="video-source-url-empty">URL 정보 없음</span>
+                        )}
                         <div className="video-meta">
                           <span>{formatFileSize(video.sizeBytes)}</span>
-                          <span title={video.contentHash}>
-                            SHA-256 {video.contentHash.slice(0, 10)}…
-                          </span>
+                          <button
+                            className="video-location-button"
+                            type="button"
+                            onClick={() => void revealVideoFile(video)}
+                            disabled={!video.fileAvailable}
+                            aria-label={`${video.fileName} 파일 위치로 이동`}
+                          >
+                            위치로 이동
+                          </button>
                         </div>
                         <div className="video-dates">
                           <span>DB 등록 {formatVideoDate(video.registeredAt)}</span>

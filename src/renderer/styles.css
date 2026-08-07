@@ -1473,7 +1473,8 @@ h2 {
 }
 
 .video-file-name,
-.video-relative-path {
+.video-source-url,
+.video-source-url-empty {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1502,9 +1503,34 @@ h2 {
   text-underline-offset: 3px;
 }
 
-.video-relative-path {
-  color: #9199a5;
+.video-source-url,
+.video-source-url-empty {
+  display: block;
+  width: 100%;
   font-size: 9px;
+  text-align: left;
+}
+
+.video-source-url {
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: #7e8693;
+  cursor: pointer;
+}
+
+.video-source-url:hover,
+.video-source-url:focus-visible,
+.video-location-button:hover:not(:disabled),
+.video-location-button:focus-visible {
+  color: #5556c8;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.video-source-url-empty {
+  color: #9199a5;
 }
 
 .video-meta {
@@ -1514,6 +1540,20 @@ h2 {
   color: #9ba2ad;
   font-family: 'SFMono-Regular', Consolas, monospace;
   font-size: 8px;
+}
+
+.video-location-button {
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: #858e9b;
+  cursor: pointer;
+}
+
+.video-location-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .video-dates {
