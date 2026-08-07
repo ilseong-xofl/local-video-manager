@@ -9,6 +9,7 @@ import type {
   LibraryVideo,
   LibraryVideoQuery,
   ManagedVideoTag,
+  VideoReaction,
   VideoTag,
   VideoMetadataDetail,
   VideoMetadataInput,
@@ -26,10 +27,11 @@ const LEGACY_LIBRARY_ROOT_KEY = 'library_root';
 const LEGACY_LAST_SCANNED_AT_KEY = 'last_scanned_at';
 const METADATA_SEARCH_LIMIT = 50;
 const DATABASE_APPLICATION_ID = 0x4c564d31;
-const DATABASE_SCHEMA_VERSION = 2;
+const DATABASE_SCHEMA_VERSION = 3;
 const ALL_LIBRARY_VIDEOS_QUERY: LibraryVideoQuery = {
   dateFromMs: 0,
   dateToMs: Date.parse('9999-12-31T23:59:59.999Z'),
+  reaction: null,
   searchQuery: '',
   sortDirection: 'desc',
   sortField: 'registeredAt',
@@ -68,6 +70,7 @@ interface LibraryVideoRow {
   fileName: string;
   metadataUpdatedAt: string | null;
   modifiedAtMs: number;
+  reaction: VideoReaction | null;
   registeredAt: string;
   relativePath: string;
   sizeBytes: number;
@@ -405,6 +408,11 @@ export class AppDatabase {
                   AND video_tags.tag_id = ?
               )
             )
+            AND (
+              ? IS NULL
+              OR (? = 'none' AND videos.reaction IS NULL)
+              OR videos.reaction = ?
+            )
         `,
       )
       .get(
@@ -416,6 +424,9 @@ export class AppDatabase {
         queryParts.normalizedSearchQuery,
         query.tagId,
         query.tagId,
+        query.reaction,
+        query.reaction,
+        query.reaction,
       ) as TotalRow;
 
     return row.totalItems;
@@ -454,6 +465,7 @@ export class AppDatabase {
             ranked_files.fileName,
             video_metadata.updated_at AS metadataUpdatedAt,
             ranked_files.modifiedAtMs,
+            videos.reaction,
             videos.created_at AS registeredAt,
             ranked_files.relativePath,
             ranked_files.sizeBytes
@@ -486,6 +498,11 @@ export class AppDatabase {
                   AND video_tags.tag_id = ?
               )
             )
+            AND (
+              ? IS NULL
+              OR (? = 'none' AND videos.reaction IS NULL)
+              OR videos.reaction = ?
+            )
           ORDER BY
             ${queryParts.orderBy},
             ranked_files.fileName COLLATE NOCASE,
@@ -502,6 +519,9 @@ export class AppDatabase {
         queryParts.normalizedSearchQuery,
         query.tagId,
         query.tagId,
+        query.reaction,
+        query.reaction,
+        query.reaction,
         limit,
         offset,
       ) as LibraryVideoRow[];
@@ -526,6 +546,7 @@ export class AppDatabase {
             video_files.file_name AS fileName,
             video_metadata.updated_at AS metadataUpdatedAt,
             video_files.modified_at_ms AS modifiedAtMs,
+            videos.reaction,
             videos.created_at AS registeredAt,
             video_files.relative_path AS relativePath,
             video_files.size_bytes AS sizeBytes
@@ -670,6 +691,21 @@ export class AppDatabase {
     })();
 
     return this.getVideoTags(contentHash);
+  }
+
+  public setVideoReaction(
+    contentHash: string,
+    reaction: VideoReaction | null,
+  ): VideoReaction | null {
+    this.assertVideoExists(contentHash);
+    if (reaction !== null && reaction !== 'hype' && reaction !== 'unhype') {
+      throw new Error('Invalid video reaction.');
+    }
+
+    this.database
+      .prepare('UPDATE videos SET reaction = ? WHERE content_hash = ?')
+      .run(reaction, contentHash);
+    return reaction;
   }
 
   public getVideoMetadata(contentHash: string): VideoMetadataDetail {
@@ -1041,7 +1077,8 @@ export class AppDatabase {
 
       CREATE TABLE IF NOT EXISTS videos (
         content_hash TEXT PRIMARY KEY,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        reaction TEXT CHECK (reaction IS NULL OR reaction IN ('hype', 'unhype'))
       );
 
       CREATE TABLE IF NOT EXISTS managed_folders (
@@ -1109,6 +1146,13 @@ export class AppDatabase {
       this.database.exec(`
         ALTER TABLE video_metadata_revisions
         ADD COLUMN copied_from_content_hash TEXT REFERENCES videos(content_hash)
+      `);
+    }
+
+    if (!this.columnExists('videos', 'reaction')) {
+      this.database.exec(`
+        ALTER TABLE videos
+        ADD COLUMN reaction TEXT CHECK (reaction IS NULL OR reaction IN ('hype', 'unhype'))
       `);
     }
 

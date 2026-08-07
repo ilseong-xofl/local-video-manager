@@ -1106,8 +1106,8 @@ h2 {
 .library-filters {
   display: grid;
   grid-template-columns:
-    minmax(205px, 1.25fr) minmax(135px, 0.7fr) minmax(190px, 0.95fr)
-    minmax(130px, 0.68fr) minmax(130px, 0.68fr) auto;
+    minmax(180px, 1.2fr) minmax(120px, 0.65fr) minmax(115px, 0.6fr)
+    minmax(175px, 0.9fr) minmax(120px, 0.65fr) minmax(120px, 0.65fr) auto;
   gap: 12px;
   margin-bottom: 24px;
   padding: 18px 19px 19px;
@@ -1453,6 +1453,62 @@ h2 {
   border-top: 1px solid #f0f1f4;
   color: #858e9b;
   font-size: 9px;
+}
+
+.video-reaction-controls {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.video-reaction-button {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 1px solid #dfe2e7;
+  border-radius: 9px;
+  background: #fafbfc;
+  color: #7e8794;
+  cursor: pointer;
+  font: inherit;
+  font-size: 9px;
+  font-weight: 800;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    color 150ms ease;
+}
+
+.video-reaction-button svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.video-reaction-button:hover:not(:disabled) {
+  border-color: #c9cafa;
+  background: #f3f3fd;
+  color: #595ac3;
+}
+
+.video-reaction-hype.active {
+  border-color: #c7c8f2;
+  background: #ececfc;
+  color: #5051bb;
+}
+
+.video-reaction-unhype.active {
+  border-color: #efcbd0;
+  background: #fff0f1;
+  color: #b14554;
+}
+
+.video-reaction-button:disabled {
+  cursor: wait;
+  opacity: 0.55;
 }
 
 .metadata-button {
@@ -2535,10 +2591,12 @@ h2 {
   }
 
   .library-filters {
-    grid-template-columns:
-      minmax(190px, 1.2fr) minmax(125px, 0.7fr) minmax(170px, 0.9fr)
-      repeat(2, minmax(115px, 0.7fr)) auto;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 10px;
+  }
+
+  .library-filter-search {
+    grid-column: span 2;
   }
 }
 
@@ -2581,6 +2639,7 @@ h2 {
   }
 
   .library-filters-heading,
+  .library-filter-search,
   .library-filter-error {
     grid-column: 1;
   }

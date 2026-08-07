@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 
 import type {
   BootstrapState,
+  LibraryVideoReactionFilter,
   LibraryVideoItem,
   LibraryVideoPage,
   LibraryVideoQuery,
   LibraryVideoSortDirection,
   LibraryVideoSortField,
   ManagedVideoTag,
+  VideoReaction,
   VideoMetadataDetail,
   VideoMetadataSearchResult,
   VideoScanSummary,
@@ -77,6 +79,7 @@ function buildLibraryVideoQuery(
   dateFrom: string,
   dateTo: string,
   tagId: number | null,
+  reaction: LibraryVideoReactionFilter | null,
 ): LibraryVideoQuery | null {
   const dateFromMs = parseDateInput(dateFrom, false);
   const dateToMs = parseDateInput(dateTo, true);
@@ -88,7 +91,7 @@ function buildLibraryVideoQuery(
     LibraryVideoSortField,
     LibraryVideoSortDirection,
   ];
-  return { dateFromMs, dateToMs, searchQuery, sortDirection, sortField, tagId };
+  return { dateFromMs, dateToMs, reaction, searchQuery, sortDirection, sortField, tagId };
 }
 
 function formatScanTime(value: string | null): string {
@@ -155,6 +158,7 @@ export function App() {
   const [libraryDateFrom, setLibraryDateFrom] = useState(defaultLibraryFilters.dateFrom);
   const [libraryDateTo, setLibraryDateTo] = useState(defaultLibraryFilters.dateTo);
   const [libraryTagId, setLibraryTagId] = useState<number | null>(null);
+  const [libraryReaction, setLibraryReaction] = useState<LibraryVideoReactionFilter | null>(null);
   const [libraryFilterError, setLibraryFilterError] = useState<string | null>(null);
   const [appliedLibraryQuery, setAppliedLibraryQuery] = useState<LibraryVideoQuery>(() => {
     const query = buildLibraryVideoQuery(
@@ -162,6 +166,7 @@ export function App() {
       defaultLibraryFilters.sortOption,
       defaultLibraryFilters.dateFrom,
       defaultLibraryFilters.dateTo,
+      null,
       null,
     );
     if (!query) {
@@ -175,6 +180,7 @@ export function App() {
   const [viewingMetadata, setViewingMetadata] = useState<VideoMetadataDetail['current']>(null);
   const [loadingVideoDetails, setLoadingVideoDetails] = useState(false);
   const [videoDetailsError, setVideoDetailsError] = useState<string | null>(null);
+  const [savingReactionHash, setSavingReactionHash] = useState<string | null>(null);
   const [editingVideo, setEditingVideo] = useState<LibraryVideoItem | null>(null);
   const [videoMetadata, setVideoMetadata] = useState<VideoMetadataDetail | null>(null);
   const [sourceUrl, setSourceUrl] = useState('');
@@ -520,6 +526,7 @@ export function App() {
       libraryDateFrom,
       libraryDateTo,
       libraryTagId,
+      libraryReaction,
     );
     if (!query) {
       setLibraryFilterError('시작일은 종료일보다 늦을 수 없습니다. 날짜 범위를 확인하세요.');
@@ -529,6 +536,43 @@ export function App() {
     setLibraryFilterError(null);
     setAppliedLibraryQuery(query);
     await loadVideoPage(0, query);
+  }
+
+  async function updateVideoReaction(video: LibraryVideoItem, reaction: VideoReaction) {
+    if (savingReactionHash) {
+      return;
+    }
+
+    const nextReaction = video.reaction === reaction ? null : reaction;
+    setSavingReactionHash(video.contentHash);
+    setError(null);
+
+    try {
+      const savedReaction = await window.localVideoManager.setVideoReaction(
+        video.contentHash,
+        nextReaction,
+      );
+      setVideoPage((currentPage) =>
+        currentPage
+          ? {
+              ...currentPage,
+              items: currentPage.items.map((item) =>
+                item.contentHash === video.contentHash
+                  ? { ...item, reaction: savedReaction }
+                  : item,
+              ),
+            }
+          : currentPage,
+      );
+
+      if (appliedLibraryQuery.reaction !== null) {
+        await loadVideoPage(videoPage?.pageIndex ?? 0);
+      }
+    } catch {
+      setError('영상 반응을 저장하지 못했습니다. 다시 시도하세요.');
+    } finally {
+      setSavingReactionHash(null);
+    }
   }
 
   function openPlayer(video: LibraryVideoItem) {
@@ -986,7 +1030,7 @@ export function App() {
                   </span>
                   <span>
                     <strong>검색 및 필터</strong>
-                    <small>파일명, 태그와 날짜 조건으로 원하는 영상을 찾습니다.</small>
+                    <small>파일명, 태그, 반응과 날짜 조건으로 원하는 영상을 찾습니다.</small>
                   </span>
                 </div>
                 <label className="library-filter-field library-filter-search">
@@ -1019,6 +1063,26 @@ export function App() {
                         {tag.name} ({tag.videoCount})
                       </option>
                     ))}
+                  </select>
+                </label>
+                <label className="library-filter-field library-filter-reaction">
+                  <span>반응</span>
+                  <select
+                    value={libraryReaction ?? ''}
+                    onChange={(event) => {
+                      setLibraryReaction(
+                        event.target.value
+                          ? (event.target.value as LibraryVideoReactionFilter)
+                          : null,
+                      );
+                      setLibraryFilterError(null);
+                    }}
+                    disabled={loadingVideos}
+                  >
+                    <option value="">전체 반응</option>
+                    <option value="hype">하이프</option>
+                    <option value="unhype">언하이프</option>
+                    <option value="none">미지정</option>
                   </select>
                 </label>
                 <label className="library-filter-field library-filter-sort">
@@ -1154,6 +1218,66 @@ export function App() {
                         <div className="video-dates">
                           <span>등록 {formatVideoDate(video.registeredAt)}</span>
                           <span>수정 {formatVideoDate(video.modifiedAtMs)}</span>
+                        </div>
+                        <div className="video-reaction-controls" aria-label="영상 반응">
+                          <button
+                            className={
+                              video.reaction === 'hype'
+                                ? 'video-reaction-button video-reaction-hype active'
+                                : 'video-reaction-button video-reaction-hype'
+                            }
+                            type="button"
+                            onClick={() => void updateVideoReaction(video, 'hype')}
+                            disabled={loadingVideos || savingReactionHash !== null}
+                            aria-pressed={video.reaction === 'hype'}
+                            title="하이프"
+                          >
+                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                              <path
+                                d="M8.5 10.2 12 4.5c.7-1.2 2.5-.5 2.2.9l-.7 3.1h4.3a2 2 0 0 1 1.9 2.5l-1.4 5.1a2.5 2.5 0 0 1-2.4 1.9H8.5v-7.8Z"
+                                stroke="currentColor"
+                                strokeWidth="1.6"
+                                strokeLinejoin="round"
+                              />
+                              <path
+                                d="M4 10.2h4.5V18H4z"
+                                stroke="currentColor"
+                                strokeWidth="1.6"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                            <span>하이프</span>
+                          </button>
+                          <button
+                            className={
+                              video.reaction === 'unhype'
+                                ? 'video-reaction-button video-reaction-unhype active'
+                                : 'video-reaction-button video-reaction-unhype'
+                            }
+                            type="button"
+                            onClick={() => void updateVideoReaction(video, 'unhype')}
+                            disabled={loadingVideos || savingReactionHash !== null}
+                            aria-pressed={video.reaction === 'unhype'}
+                            title="언하이프"
+                          >
+                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                              <g transform="rotate(180 12 12)">
+                                <path
+                                  d="M8.5 10.2 12 4.5c.7-1.2 2.5-.5 2.2.9l-.7 3.1h4.3a2 2 0 0 1 1.9 2.5l-1.4 5.1a2.5 2.5 0 0 1-2.4 1.9H8.5v-7.8Z"
+                                  stroke="currentColor"
+                                  strokeWidth="1.6"
+                                  strokeLinejoin="round"
+                                />
+                                <path
+                                  d="M4 10.2h4.5V18H4z"
+                                  stroke="currentColor"
+                                  strokeWidth="1.6"
+                                  strokeLinejoin="round"
+                                />
+                              </g>
+                            </svg>
+                            <span>언하이프</span>
+                          </button>
                         </div>
                         <button
                           className={

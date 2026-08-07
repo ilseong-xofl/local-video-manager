@@ -13,6 +13,8 @@ const api: LocalVideoManagerApi = {
   deleteTag: (id) => ipcRenderer.invoke(IPC_CHANNELS.deleteTag, id),
   setVideoTags: (contentHash, tagIds) =>
     ipcRenderer.invoke(IPC_CHANNELS.setVideoTags, contentHash, tagIds),
+  setVideoReaction: (contentHash, reaction) =>
+    ipcRenderer.invoke(IPC_CHANNELS.setVideoReaction, contentHash, reaction),
   getLibraryVideoPage: (pageIndex, query) =>
     ipcRenderer.invoke(IPC_CHANNELS.getLibraryVideoPage, pageIndex, query),
   getVideoMetadata: (contentHash) => ipcRenderer.invoke(IPC_CHANNELS.getVideoMetadata, contentHash),

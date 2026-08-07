@@ -20,7 +20,7 @@ import {
 } from '../shared/contracts';
 import type { AppDatabase } from './database';
 import type { ThumbnailCache } from './thumbnail-cache';
-import { getLibraryVideoPage } from './video-library';
+import { getLibraryVideoPage, parseVideoReaction } from './video-library';
 import {
   parseContentHash,
   parseOptionalContentHash,
@@ -178,6 +178,10 @@ export function registerIpcHandlers(
     database.setVideoTags(parseContentHash(contentHash), parseVideoTagIds(tagIds)),
   );
 
+  ipcMain.handle(IPC_CHANNELS.setVideoReaction, (_event, contentHash: unknown, reaction: unknown) =>
+    database.setVideoReaction(parseContentHash(contentHash), parseVideoReaction(reaction)),
+  );
+
   ipcMain.handle(IPC_CHANNELS.getVideoMetadata, (_event, contentHash: unknown) =>
     database.getVideoMetadata(parseContentHash(contentHash)),
   );
@@ -262,6 +266,7 @@ export function registerIpcHandlers(
     ipcMain.removeHandler(IPC_CHANNELS.renameTag);
     ipcMain.removeHandler(IPC_CHANNELS.deleteTag);
     ipcMain.removeHandler(IPC_CHANNELS.setVideoTags);
+    ipcMain.removeHandler(IPC_CHANNELS.setVideoReaction);
     ipcMain.removeHandler(IPC_CHANNELS.getVideoMetadata);
     ipcMain.removeHandler(IPC_CHANNELS.searchVideoMetadata);
     ipcMain.removeHandler(IPC_CHANNELS.saveVideoMetadata);

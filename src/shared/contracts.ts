@@ -9,6 +9,7 @@ export const IPC_CHANNELS = {
   renameTag: 'tags:rename',
   deleteTag: 'tags:delete',
   setVideoTags: 'tags:set-for-video',
+  setVideoReaction: 'library:set-video-reaction',
   getVideoMetadata: 'library:get-video-metadata',
   searchVideoMetadata: 'library:search-video-metadata',
   saveVideoMetadata: 'library:save-video-metadata',
@@ -23,11 +24,14 @@ export const VIDEO_TAG_NAME_MAX_LENGTH = 40;
 
 export type LibraryVideoSortDirection = 'asc' | 'desc';
 export type LibraryVideoSortField = 'modifiedAt' | 'registeredAt';
+export type VideoReaction = 'hype' | 'unhype';
+export type LibraryVideoReactionFilter = VideoReaction | 'none';
 
 export interface LibraryVideoQuery {
   dateFromMs: number;
   dateToMs: number;
   searchQuery: string;
+  reaction: LibraryVideoReactionFilter | null;
   sortDirection: LibraryVideoSortDirection;
   sortField: LibraryVideoSortField;
   tagId: number | null;
@@ -63,6 +67,7 @@ export interface LibraryVideo {
   metadataRegistered: boolean;
   metadataUpdatedAt: string | null;
   modifiedAtMs: number;
+  reaction: VideoReaction | null;
   registeredAt: string;
   relativePath: string;
   sizeBytes: number;
@@ -151,6 +156,10 @@ export interface LocalVideoManagerApi {
   renameTag(id: number, name: string): Promise<ManagedVideoTag>;
   deleteTag(id: number): Promise<void>;
   setVideoTags(contentHash: string, tagIds: number[]): Promise<VideoTag[]>;
+  setVideoReaction(
+    contentHash: string,
+    reaction: VideoReaction | null,
+  ): Promise<VideoReaction | null>;
   getLibraryVideoPage(pageIndex: number, query: LibraryVideoQuery): Promise<LibraryVideoPage>;
   getVideoMetadata(contentHash: string): Promise<VideoMetadataDetail>;
   searchVideoMetadata(

@@ -6,13 +6,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AppDatabase } from './database';
 import { ThumbnailCache } from './thumbnail-cache';
-import { getLibraryVideoPage, parseLibraryVideoQuery } from './video-library';
+import { getLibraryVideoPage, parseLibraryVideoQuery, parseVideoReaction } from './video-library';
 import type { ScannedVideoFile } from './video-scanner';
 
 const temporaryDirectories: string[] = [];
 const ALL_VIDEOS_QUERY = {
   dateFromMs: 0,
   dateToMs: Date.parse('9999-12-31T23:59:59.999Z'),
+  reaction: null,
   searchQuery: '',
   sortDirection: 'desc',
   sortField: 'registeredAt',
@@ -157,5 +158,15 @@ describe('parseLibraryVideoQuery', () => {
     expect(() => parseLibraryVideoQuery({ ...ALL_VIDEOS_QUERY, tagId: 0 })).toThrow(
       'Invalid video library query.',
     );
+    expect(() => parseLibraryVideoQuery({ ...ALL_VIDEOS_QUERY, reaction: 'liked' })).toThrow(
+      'Invalid video library query.',
+    );
+  });
+
+  it('accepts only hype, unhype, or a cleared reaction', () => {
+    expect(parseVideoReaction('hype')).toBe('hype');
+    expect(parseVideoReaction('unhype')).toBe('unhype');
+    expect(parseVideoReaction(null)).toBeNull();
+    expect(() => parseVideoReaction('none')).toThrow('Invalid video reaction.');
   });
 });

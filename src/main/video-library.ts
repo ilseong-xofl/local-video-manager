@@ -5,6 +5,7 @@ import {
   type LibraryVideoItem,
   type LibraryVideoPage,
   type LibraryVideoQuery,
+  type VideoReaction,
 } from '../shared/contracts';
 import type { AppDatabase } from './database';
 import { resolveLibraryFilePath, type ThumbnailCache } from './thumbnail-cache';
@@ -29,6 +30,10 @@ export function parseLibraryVideoQuery(value: unknown): LibraryVideoQuery {
   if (
     typeof query.searchQuery !== 'string' ||
     query.searchQuery.length > VIDEO_LIBRARY_SEARCH_MAX_LENGTH ||
+    (query.reaction !== null &&
+      query.reaction !== 'hype' &&
+      query.reaction !== 'unhype' &&
+      query.reaction !== 'none') ||
     (query.sortField !== 'registeredAt' && query.sortField !== 'modifiedAt') ||
     (query.sortDirection !== 'asc' && query.sortDirection !== 'desc') ||
     (query.tagId !== null &&
@@ -45,11 +50,20 @@ export function parseLibraryVideoQuery(value: unknown): LibraryVideoQuery {
   return {
     dateFromMs: query.dateFromMs,
     dateToMs: query.dateToMs,
+    reaction: query.reaction,
     searchQuery: query.searchQuery.trim(),
     sortDirection: query.sortDirection,
     sortField: query.sortField,
     tagId: query.tagId,
   };
+}
+
+export function parseVideoReaction(value: unknown): VideoReaction | null {
+  if (value === null || value === 'hype' || value === 'unhype') {
+    return value;
+  }
+
+  throw new Error('Invalid video reaction.');
 }
 
 async function isFileAvailable(filePath: string): Promise<boolean> {

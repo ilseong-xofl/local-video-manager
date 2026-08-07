@@ -35,6 +35,7 @@ function libraryQuery(overrides: Partial<LibraryVideoQuery> = {}): LibraryVideoQ
   return {
     dateFromMs: 0,
     dateToMs: Date.parse('9999-12-31T23:59:59.999Z'),
+    reaction: null,
     searchQuery: '',
     sortDirection: 'desc',
     sortField: 'registeredAt',
@@ -80,6 +81,7 @@ describe('AppDatabase', () => {
     });
     const backedUpTag = database.createVideoTag('백업 태그');
     database.setVideoTags(contentHash, [backedUpTag.id]);
+    database.setVideoReaction(contentHash, 'hype');
     const libraryId = database.getOrCreateLibraryId();
 
     await database.createBackup(backupPath, '0.1.1');
@@ -90,7 +92,7 @@ describe('AppDatabase', () => {
           'SELECT app_version AS appVersion, schema_version AS schemaVersion FROM backup_manifest',
         )
         .get(),
-    ).toEqual({ appVersion: '0.1.1', schemaVersion: 2 });
+    ).toEqual({ appVersion: '0.1.1', schemaVersion: 3 });
     backupFile.close();
 
     database.saveVideoMetadata(contentHash, {
@@ -113,6 +115,7 @@ describe('AppDatabase', () => {
     expect(restoredDatabase.getVideoTags(contentHash)).toEqual([
       { id: backedUpTag.id, name: '백업 태그' },
     ]);
+    expect(restoredDatabase.getLibraryVideoByHash(contentHash)?.reaction).toBe('hype');
     restoredDatabase.close();
 
     const automaticBackup = new AppDatabase(automaticBackupPath);
@@ -277,6 +280,7 @@ describe('AppDatabase', () => {
         metadataRegistered: false,
         metadataUpdatedAt: null,
         modifiedAtMs: 1_000,
+        reaction: null,
         registeredAt: expect.any(String),
         relativePath: 'first.mp4',
         sizeBytes: 10,
@@ -287,6 +291,7 @@ describe('AppDatabase', () => {
         metadataRegistered: false,
         metadataUpdatedAt: null,
         modifiedAtMs: 1_000,
+        reaction: null,
         registeredAt: expect.any(String),
         relativePath: 'middle.mov',
         sizeBytes: 10,
@@ -299,6 +304,7 @@ describe('AppDatabase', () => {
         metadataRegistered: false,
         metadataUpdatedAt: null,
         modifiedAtMs: 1_000,
+        reaction: null,
         registeredAt: expect.any(String),
         relativePath: 'z-last.webm',
         sizeBytes: 10,
@@ -482,6 +488,41 @@ describe('AppDatabase', () => {
     database.close();
   });
 
+  it('stores one video reaction and filters hype, unhype, or unmarked videos', () => {
+    const database = new AppDatabase(createDatabasePath());
+    const hypeHash = 'a'.repeat(64);
+    const unhypeHash = 'b'.repeat(64);
+    const unmarkedHash = 'c'.repeat(64);
+    database.setLibraryRoot('/videos');
+    database.syncVideoFiles(
+      [
+        scannedVideo('hype.mp4', hypeHash),
+        scannedVideo('unhype.mp4', unhypeHash),
+        scannedVideo('unmarked.mp4', unmarkedHash),
+      ],
+      { hashedFileCount: 3, reusedHashCount: 0 },
+    );
+
+    expect(database.setVideoReaction(hypeHash, 'hype')).toBe('hype');
+    expect(database.setVideoReaction(unhypeHash, 'unhype')).toBe('unhype');
+    expect(database.getLibraryVideoByHash(hypeHash)?.reaction).toBe('hype');
+    expect(
+      database
+        .getLibraryVideos(24, 0, libraryQuery({ reaction: 'hype' }))
+        .map((video) => video.contentHash),
+    ).toEqual([hypeHash]);
+    expect(database.getLibraryVideoCount(libraryQuery({ reaction: 'unhype' }))).toBe(1);
+    expect(
+      database
+        .getLibraryVideos(24, 0, libraryQuery({ reaction: 'none' }))
+        .map((video) => video.contentHash),
+    ).toEqual([unmarkedHash]);
+
+    expect(database.setVideoReaction(hypeHash, null)).toBeNull();
+    expect(database.getLibraryVideoCount(libraryQuery({ reaction: 'none' }))).toBe(2);
+    database.close();
+  });
+
   it('returns one deterministic file location by content hash', () => {
     const database = new AppDatabase(createDatabasePath());
     const contentHash = 'a'.repeat(64);
@@ -497,6 +538,7 @@ describe('AppDatabase', () => {
       metadataRegistered: false,
       metadataUpdatedAt: null,
       modifiedAtMs: 1_000,
+      reaction: null,
       registeredAt: expect.any(String),
       relativePath: 'first.mp4',
       sizeBytes: 10,
