@@ -861,14 +861,19 @@ export function App() {
         <>
           <header className="library-topbar">
             <div className="library-topbar-inner">
-              <div className="app-brand">
-                <span className="app-brand-mark">
-                  <BrandIcon />
-                </span>
-                <div className="app-brand-copy">
-                  <strong>Local Video Manager</strong>
-                  <span title={state.libraryRoot ?? undefined}>{activeFolderName}</span>
+              <div className="library-brand-area">
+                <div className="app-brand">
+                  <span className="app-brand-mark">
+                    <BrandIcon />
+                  </span>
+                  <div className="app-brand-copy">
+                    <strong>Local Video Manager</strong>
+                    <span title={state.libraryRoot ?? undefined}>{activeFolderName}</span>
+                  </div>
                 </div>
+                <h1 className="library-view-title" id="video-library-heading">
+                  My Video Library
+                </h1>
               </div>
 
               <div className="library-toolbar">
@@ -1050,38 +1055,36 @@ export function App() {
             ) : null}
 
             <section className="library-section" aria-labelledby="video-library-heading">
-              <div className="library-section-heading">
-                <div className="library-heading-copy">
-                  <p className="eyebrow">MY VIDEO LIBRARY</p>
-                  <h1 id="video-library-heading">영상 라이브러리</h1>
-                  <p>
-                    <strong>{activeFolderName}</strong> 폴더에서 관리 중인 영상을 확인하세요.
-                  </p>
-                </div>
-                <span className="library-count">
-                  <strong>{videoPage?.totalItems ?? 0}</strong>개 조회 결과
-                </span>
-              </div>
-
               <form
                 className="library-filters"
                 onSubmit={(event) => void applyLibraryFilters(event)}
               >
                 <div className="library-filters-heading">
-                  <span className="filter-heading-icon">
-                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                      <circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" strokeWidth="1.8" />
-                      <path
-                        d="m15.5 15.5 4.5 4.5"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                  </span>
-                  <span>
-                    <strong>검색 및 필터</strong>
-                    <small>파일명, 태그, 반응과 날짜 조건으로 원하는 영상을 찾습니다.</small>
+                  <div className="library-filters-heading-copy">
+                    <span className="filter-heading-icon">
+                      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <circle
+                          cx="10.5"
+                          cy="10.5"
+                          r="6.5"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                        />
+                        <path
+                          d="m15.5 15.5 4.5 4.5"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                    </span>
+                    <span>
+                      <strong>검색 및 필터</strong>
+                      <small>파일명, 태그, 반응과 날짜 조건으로 원하는 영상을 찾습니다.</small>
+                    </span>
+                  </div>
+                  <span className="library-filter-count">
+                    <strong>{videoPage?.totalItems ?? 0}</strong>개 조회 결과
                   </span>
                 </div>
                 <label className="library-filter-field library-filter-search">
@@ -1146,10 +1149,10 @@ export function App() {
                     }}
                     disabled={loadingVideos}
                   >
-                    <option value="registeredAt-desc">DB 등록일 · 내림차순 (최신순)</option>
-                    <option value="registeredAt-asc">DB 등록일 · 오름차순 (오래된순)</option>
-                    <option value="modifiedAt-desc">파일 수정일 · 내림차순 (최신순)</option>
-                    <option value="modifiedAt-asc">파일 수정일 · 오름차순 (오래된순)</option>
+                    <option value="registeredAt-desc">DB 등록일 (최신순)</option>
+                    <option value="registeredAt-asc">DB 등록일 (오래된순)</option>
+                    <option value="modifiedAt-desc">파일 수정일 (최신순)</option>
+                    <option value="modifiedAt-asc">파일 수정일 (오래된순)</option>
                   </select>
                 </label>
                 <label className="library-filter-field">

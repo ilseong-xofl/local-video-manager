@@ -622,6 +622,24 @@ h2 {
   margin: 0 auto;
 }
 
+.library-brand-area {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 20px;
+}
+
+.library-view-title {
+  margin: 0;
+  padding-left: 20px;
+  border-left: 1px solid #e2e5eb;
+  color: #5556c8;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
 .library-toolbar {
   display: flex;
   align-items: center;
@@ -1060,49 +1078,6 @@ h2 {
   margin: 0;
 }
 
-.library-section-heading {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 24px;
-}
-
-.library-heading-copy h1 {
-  margin-bottom: 7px;
-  color: #18212f;
-  font-size: clamp(31px, 3.2vw, 40px);
-}
-
-.library-heading-copy > p:last-child {
-  margin-bottom: 0;
-  color: #858e9c;
-  font-size: 11px;
-}
-
-.library-heading-copy > p:last-child strong {
-  color: #626c7c;
-}
-
-.library-count {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
-  margin-bottom: 5px;
-  padding: 8px 11px;
-  border: 1px solid #e1e4ea;
-  border-radius: 999px;
-  background: white;
-  color: #7f8896;
-  font-size: 10px;
-  font-weight: 750;
-}
-
-.library-count strong {
-  color: #373f4d;
-  font-size: 12px;
-}
-
 .library-filters {
   display: grid;
   grid-template-columns:
@@ -1120,9 +1095,17 @@ h2 {
 .library-filters-heading {
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: space-between;
+  gap: 16px;
   padding-bottom: 3px;
   grid-column: 1 / -1;
+}
+
+.library-filters-heading-copy {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
 }
 
 .filter-heading-icon {
@@ -1142,8 +1125,9 @@ h2 {
   height: 100%;
 }
 
-.library-filters-heading > span:last-child {
+.library-filters-heading-copy > span:last-child {
   display: flex;
+  min-width: 0;
   flex-direction: column;
   gap: 1px;
 }
@@ -1156,6 +1140,25 @@ h2 {
 .library-filters-heading small {
   color: #989faa;
   font-size: 9px;
+}
+
+.library-filter-count {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: baseline;
+  gap: 4px;
+  padding: 7px 10px;
+  border: 1px solid #e1e4ea;
+  border-radius: 999px;
+  background: #fafbfc;
+  color: #7f8896;
+  font-size: 9px;
+  font-weight: 750;
+}
+
+.library-filter-count strong {
+  color: #373f4d;
+  font-size: 11px;
 }
 
 .library-filter-field {
@@ -2724,10 +2727,8 @@ h2 {
     display: none;
   }
 
-  .library-section-heading {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 13px;
+  .library-view-title {
+    display: none;
   }
 
   .library-filters {
