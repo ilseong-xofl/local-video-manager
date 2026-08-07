@@ -128,6 +128,29 @@ function BrandIcon() {
   );
 }
 
+function ReactionIcon({ direction, filled }: { direction: 'up' | 'down'; filled: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <g transform={direction === 'down' ? 'rotate(180 12 12)' : undefined}>
+        <path
+          d="M8.5 10.2 12 4.5c.7-1.2 2.5-.5 2.2.9l-.7 3.1h4.3a2 2 0 0 1 1.9 2.5l-1.4 5.1a2.5 2.5 0 0 1-2.4 1.9H8.5v-7.8Z"
+          fill={filled ? 'currentColor' : 'none'}
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M4 10.2h4.5V18H4z"
+          fill={filled ? 'currentColor' : 'none'}
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinejoin="round"
+        />
+      </g>
+    </svg>
+  );
+}
+
 export function App() {
   const [state, setState] = useState<BootstrapState | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1160,24 +1183,29 @@ export function App() {
                 <div className={loadingVideos ? 'video-grid video-grid-loading' : 'video-grid'}>
                   {videoPage.items.map((video) => (
                     <article className="video-card" key={video.contentHash}>
-                      <button
-                        className="thumbnail-frame thumbnail-button"
-                        type="button"
-                        onClick={() => openPlayer(video)}
-                        disabled={!video.playbackUrl}
-                        aria-label={`${video.fileName} 재생`}
-                      >
-                        {video.thumbnailDataUrl ? (
-                          <img
-                            src={video.thumbnailDataUrl}
-                            alt={`${video.fileName} 썸네일`}
-                            loading="lazy"
-                          />
-                        ) : (
-                          <div className="thumbnail-placeholder" aria-label="썸네일 없음">
-                            <span>미리보기 없음</span>
-                          </div>
-                        )}
+                      <div className="thumbnail-frame">
+                        <button
+                          className="thumbnail-button"
+                          type="button"
+                          onClick={() => openPlayer(video)}
+                          disabled={!video.playbackUrl}
+                          aria-label={`${video.fileName} 재생`}
+                        >
+                          {video.thumbnailDataUrl ? (
+                            <img
+                              src={video.thumbnailDataUrl}
+                              alt={`${video.fileName} 썸네일`}
+                              loading="lazy"
+                            />
+                          ) : (
+                            <span className="thumbnail-placeholder" aria-label="썸네일 없음">
+                              <span>미리보기 없음</span>
+                            </span>
+                          )}
+                          {video.playbackUrl ? (
+                            <span className="play-indicator" aria-hidden="true" />
+                          ) : null}
+                        </button>
                         {video.tags.length ? (
                           <span className="video-thumbnail-tags" aria-label="영상 태그">
                             <span className="video-thumbnail-tag-primary">
@@ -1190,13 +1218,43 @@ export function App() {
                             ) : null}
                           </span>
                         ) : null}
-                        {video.playbackUrl ? (
-                          <span className="play-indicator" aria-hidden="true" />
-                        ) : null}
+                        <div className="video-thumbnail-reactions" aria-label="영상 반응">
+                          <button
+                            className={
+                              video.reaction === 'hype'
+                                ? 'video-thumbnail-reaction-button active'
+                                : 'video-thumbnail-reaction-button'
+                            }
+                            type="button"
+                            onClick={() => void updateVideoReaction(video, 'hype')}
+                            disabled={loadingVideos || savingReactionHash !== null}
+                            aria-pressed={video.reaction === 'hype'}
+                            aria-label="하이프"
+                            title="하이프"
+                          >
+                            <ReactionIcon direction="up" filled={video.reaction === 'hype'} />
+                          </button>
+                          <span className="video-thumbnail-reaction-divider" aria-hidden="true" />
+                          <button
+                            className={
+                              video.reaction === 'unhype'
+                                ? 'video-thumbnail-reaction-button active'
+                                : 'video-thumbnail-reaction-button'
+                            }
+                            type="button"
+                            onClick={() => void updateVideoReaction(video, 'unhype')}
+                            disabled={loadingVideos || savingReactionHash !== null}
+                            aria-pressed={video.reaction === 'unhype'}
+                            aria-label="언하이프"
+                            title="언하이프"
+                          >
+                            <ReactionIcon direction="down" filled={video.reaction === 'unhype'} />
+                          </button>
+                        </div>
                         {!video.fileAvailable ? (
                           <span className="file-status">파일 없음</span>
                         ) : null}
-                      </button>
+                      </div>
                       <div className="video-card-copy">
                         <button
                           className="video-file-name"
@@ -1218,66 +1276,6 @@ export function App() {
                         <div className="video-dates">
                           <span>등록 {formatVideoDate(video.registeredAt)}</span>
                           <span>수정 {formatVideoDate(video.modifiedAtMs)}</span>
-                        </div>
-                        <div className="video-reaction-controls" aria-label="영상 반응">
-                          <button
-                            className={
-                              video.reaction === 'hype'
-                                ? 'video-reaction-button video-reaction-hype active'
-                                : 'video-reaction-button video-reaction-hype'
-                            }
-                            type="button"
-                            onClick={() => void updateVideoReaction(video, 'hype')}
-                            disabled={loadingVideos || savingReactionHash !== null}
-                            aria-pressed={video.reaction === 'hype'}
-                            title="하이프"
-                          >
-                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                              <path
-                                d="M8.5 10.2 12 4.5c.7-1.2 2.5-.5 2.2.9l-.7 3.1h4.3a2 2 0 0 1 1.9 2.5l-1.4 5.1a2.5 2.5 0 0 1-2.4 1.9H8.5v-7.8Z"
-                                stroke="currentColor"
-                                strokeWidth="1.6"
-                                strokeLinejoin="round"
-                              />
-                              <path
-                                d="M4 10.2h4.5V18H4z"
-                                stroke="currentColor"
-                                strokeWidth="1.6"
-                                strokeLinejoin="round"
-                              />
-                            </svg>
-                            <span>하이프</span>
-                          </button>
-                          <button
-                            className={
-                              video.reaction === 'unhype'
-                                ? 'video-reaction-button video-reaction-unhype active'
-                                : 'video-reaction-button video-reaction-unhype'
-                            }
-                            type="button"
-                            onClick={() => void updateVideoReaction(video, 'unhype')}
-                            disabled={loadingVideos || savingReactionHash !== null}
-                            aria-pressed={video.reaction === 'unhype'}
-                            title="언하이프"
-                          >
-                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                              <g transform="rotate(180 12 12)">
-                                <path
-                                  d="M8.5 10.2 12 4.5c.7-1.2 2.5-.5 2.2.9l-.7 3.1h4.3a2 2 0 0 1 1.9 2.5l-1.4 5.1a2.5 2.5 0 0 1-2.4 1.9H8.5v-7.8Z"
-                                  stroke="currentColor"
-                                  strokeWidth="1.6"
-                                  strokeLinejoin="round"
-                                />
-                                <path
-                                  d="M4 10.2h4.5V18H4z"
-                                  stroke="currentColor"
-                                  strokeWidth="1.6"
-                                  strokeLinejoin="round"
-                                />
-                              </g>
-                            </svg>
-                            <span>언하이프</span>
-                          </button>
                         </div>
                         <button
                           className={
