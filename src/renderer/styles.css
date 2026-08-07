@@ -1180,20 +1180,29 @@ h2 {
   border: 1px solid #d9dde5;
   border-radius: 10px;
   outline: none;
-  background: #fbfbfc;
+  background-color: #fbfbfc;
   color: #313b49;
   font: inherit;
   font-size: 11px;
   transition:
     border-color 150ms ease,
-    background 150ms ease,
+    background-color 150ms ease,
     box-shadow 150ms ease;
+}
+
+.library-filter-field select {
+  padding-right: 38px;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%23687384' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 16px center;
+  background-size: 12px 8px;
 }
 
 .library-filter-field input:focus,
 .library-filter-field select:focus {
   border-color: #8586df;
-  background: white;
+  background-color: white;
   box-shadow: 0 0 0 3px rgba(87, 88, 215, 0.1);
 }
 
@@ -1558,7 +1567,7 @@ h2 {
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  padding-top: 3px;
+  padding-top: 8px;
   border-top: 1px solid #f0f1f4;
   font-size: 9px;
 }
