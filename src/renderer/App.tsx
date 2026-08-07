@@ -171,6 +171,10 @@ export function App() {
   });
   const [playingVideo, setPlayingVideo] = useState<LibraryVideoItem | null>(null);
   const [playbackError, setPlaybackError] = useState(false);
+  const [viewingVideo, setViewingVideo] = useState<LibraryVideoItem | null>(null);
+  const [viewingMetadata, setViewingMetadata] = useState<VideoMetadataDetail['current']>(null);
+  const [loadingVideoDetails, setLoadingVideoDetails] = useState(false);
+  const [videoDetailsError, setVideoDetailsError] = useState<string | null>(null);
   const [editingVideo, setEditingVideo] = useState<LibraryVideoItem | null>(null);
   const [videoMetadata, setVideoMetadata] = useState<VideoMetadataDetail | null>(null);
   const [sourceUrl, setSourceUrl] = useState('');
@@ -215,6 +219,7 @@ export function App() {
   useEffect(() => {
     if (
       !playingVideo &&
+      !viewingVideo &&
       !editingVideo &&
       !tagManagerOpen &&
       !scanningFolder &&
@@ -228,6 +233,8 @@ export function App() {
       if (event.key === 'Escape') {
         if (playingVideo) {
           closePlayer();
+        } else if (viewingVideo) {
+          closeVideoDetails();
         } else if (metadataSearchOpen) {
           setMetadataSearchOpen(false);
         } else if (editingVideo) {
@@ -253,6 +260,7 @@ export function App() {
     scanningFolder,
     tagManagerBusy,
     tagManagerOpen,
+    viewingVideo,
   ]);
 
   useEffect(() => {
@@ -542,6 +550,29 @@ export function App() {
 
     setPlayingVideo(null);
     setPlaybackError(false);
+  }
+
+  async function openVideoDetails(video: LibraryVideoItem) {
+    setViewingVideo(video);
+    setViewingMetadata(null);
+    setLoadingVideoDetails(true);
+    setVideoDetailsError(null);
+
+    try {
+      const detail = await window.localVideoManager.getVideoMetadata(video.contentHash);
+      setViewingMetadata(detail.current);
+    } catch {
+      setVideoDetailsError('영상 정보를 불러오지 못했습니다.');
+    } finally {
+      setLoadingVideoDetails(false);
+    }
+  }
+
+  function closeVideoDetails() {
+    setViewingVideo(null);
+    setViewingMetadata(null);
+    setLoadingVideoDetails(false);
+    setVideoDetailsError(null);
   }
 
   async function openMetadataEditor(video: LibraryVideoItem) {
@@ -1083,6 +1114,18 @@ export function App() {
                             <span>미리보기 없음</span>
                           </div>
                         )}
+                        {video.tags.length ? (
+                          <span className="video-thumbnail-tags" aria-label="영상 태그">
+                            <span className="video-thumbnail-tag-primary">
+                              #{video.tags[0].name}
+                            </span>
+                            {video.tags.length > 1 ? (
+                              <span className="video-thumbnail-tag-more">
+                                +{video.tags.length - 1}
+                              </span>
+                            ) : null}
+                          </span>
+                        ) : null}
                         {video.playbackUrl ? (
                           <span className="play-indicator" aria-hidden="true" />
                         ) : null}
@@ -1093,19 +1136,17 @@ export function App() {
                         </span>
                       </button>
                       <div className="video-card-copy">
-                        <strong className="video-file-name" title={video.fileName}>
+                        <button
+                          className="video-file-name"
+                          type="button"
+                          title={`${video.fileName} 정보 보기`}
+                          onClick={() => void openVideoDetails(video)}
+                        >
                           {video.fileName}
-                        </strong>
+                        </button>
                         <span className="video-relative-path" title={video.relativePath}>
                           {video.relativePath}
                         </span>
-                        {video.tags.length ? (
-                          <div className="video-card-tags" aria-label="영상 태그">
-                            {video.tags.map((tag) => (
-                              <span key={tag.id}>#{tag.name}</span>
-                            ))}
-                          </div>
-                        ) : null}
                         <div className="video-meta">
                           <span>{formatFileSize(video.sizeBytes)}</span>
                           <span title={video.contentHash}>
@@ -1714,6 +1755,89 @@ export function App() {
                 <p className="player-error" role="alert">
                   이 영상은 현재 재생할 수 없습니다. 파일 형식이나 코덱을 확인하세요.
                 </p>
+              ) : null}
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {viewingVideo ? (
+        <div
+          className="metadata-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeVideoDetails();
+            }
+          }}
+        >
+          <section
+            className="metadata-modal video-details-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="video-details-title"
+          >
+            <header className="metadata-header">
+              <div>
+                <p className="eyebrow">VIDEO INFORMATION</p>
+                <h2 id="video-details-title">영상 정보</h2>
+                <p title={viewingVideo.fileName}>{viewingVideo.fileName}</p>
+              </div>
+              <button
+                className="metadata-close-button"
+                type="button"
+                onClick={closeVideoDetails}
+                aria-label="영상 정보 닫기"
+                autoFocus
+              >
+                ×
+              </button>
+            </header>
+
+            <div className="video-details-body">
+              <section className="video-details-section" aria-labelledby="video-details-tags">
+                <h3 id="video-details-tags">태그</h3>
+                {viewingVideo.tags.length ? (
+                  <div className="video-details-tags">
+                    {viewingVideo.tags.map((tag) => (
+                      <span key={tag.id}>#{tag.name}</span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="video-details-empty">지정된 태그가 없습니다.</p>
+                )}
+              </section>
+
+              {loadingVideoDetails ? (
+                <p className="metadata-status">영상 정보를 불러오는 중…</p>
+              ) : null}
+              {videoDetailsError ? (
+                <p className="metadata-error" role="alert">
+                  {videoDetailsError}
+                </p>
+              ) : null}
+
+              {!loadingVideoDetails && !videoDetailsError ? (
+                <>
+                  <section className="video-details-section" aria-labelledby="video-details-url">
+                    <h3 id="video-details-url">원본 URL</h3>
+                    {viewingMetadata?.sourceUrl ? (
+                      <p className="video-details-url">{viewingMetadata.sourceUrl}</p>
+                    ) : (
+                      <p className="video-details-empty">등록된 원본 URL이 없습니다.</p>
+                    )}
+                  </section>
+                  <section
+                    className="video-details-section"
+                    aria-labelledby="video-details-caption"
+                  >
+                    <h3 id="video-details-caption">원본 캡션</h3>
+                    {viewingMetadata?.sourceCaption ? (
+                      <p className="video-details-caption">{viewingMetadata.sourceCaption}</p>
+                    ) : (
+                      <p className="video-details-empty">등록된 원본 캡션이 없습니다.</p>
+                    )}
+                  </section>
+                </>
               ) : null}
             </div>
           </section>
