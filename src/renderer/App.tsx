@@ -1129,11 +1129,9 @@ export function App() {
                         {video.playbackUrl ? (
                           <span className="play-indicator" aria-hidden="true" />
                         ) : null}
-                        <span
-                          className={video.fileAvailable ? 'file-status available' : 'file-status'}
-                        >
-                          {video.fileAvailable ? '파일 확인됨' : '파일 없음'}
-                        </span>
+                        {!video.fileAvailable ? (
+                          <span className="file-status">파일 없음</span>
+                        ) : null}
                       </button>
                       <div className="video-card-copy">
                         <button

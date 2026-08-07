@@ -1358,14 +1358,6 @@ h2 {
   transform: translateY(-50%);
 }
 
-.file-status.available {
-  background: rgba(23, 91, 67, 0.87);
-}
-
-.file-status.available::before {
-  background: #78e6b7;
-}
-
 .video-thumbnail-tags {
   position: absolute;
   z-index: 2;
