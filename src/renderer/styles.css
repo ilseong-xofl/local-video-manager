@@ -1514,7 +1514,7 @@ h2 {
   border: 0;
   outline: none;
   background: transparent;
-  color: #7e8693;
+  color: #8f97a3;
   cursor: pointer;
 }
 
@@ -1528,7 +1528,7 @@ h2 {
 }
 
 .video-source-url-empty {
-  color: #9199a5;
+  color: #a1a7b0;
 }
 
 .video-meta {
@@ -1545,9 +1545,8 @@ h2 {
   border: 0;
   outline: none;
   background: transparent;
-  color: #626d7d;
+  color: #788290;
   cursor: pointer;
-  font-weight: 750;
 }
 
 .video-location-button:disabled {
