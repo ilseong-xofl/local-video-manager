@@ -82,6 +82,7 @@ describe('AppDatabase', () => {
     const backedUpTag = database.createVideoTag('백업 태그');
     database.setVideoTags(contentHash, [backedUpTag.id]);
     database.setVideoReaction(contentHash, 'hype');
+    database.setVideoViewCount(contentHash, 1_200);
     const backedUpPreset = database.createVideoEditorPreset({
       aspectRatio: '9:16',
       defaultTextStyle: {
@@ -127,7 +128,7 @@ describe('AppDatabase', () => {
           'SELECT app_version AS appVersion, schema_version AS schemaVersion FROM backup_manifest',
         )
         .get(),
-    ).toEqual({ appVersion: '0.1.1', schemaVersion: 5 });
+    ).toEqual({ appVersion: '0.1.1', schemaVersion: 6 });
     backupFile.close();
 
     database.saveVideoMetadata(contentHash, {
@@ -151,6 +152,7 @@ describe('AppDatabase', () => {
       { id: backedUpTag.id, name: '백업 태그' },
     ]);
     expect(restoredDatabase.getLibraryVideoByHash(contentHash)?.reaction).toBe('hype');
+    expect(restoredDatabase.getLibraryVideoByHash(contentHash)?.viewCount).toBe(1_200);
     expect(restoredDatabase.getVideoEditorPresets()).toEqual([
       expect.objectContaining({ id: backedUpPreset.id, name: '릴스 기본' }),
     ]);
@@ -326,6 +328,7 @@ describe('AppDatabase', () => {
         relativePath: 'first.mp4',
         sizeBytes: 10,
         sourceUrl: null,
+        viewCount: 0,
       },
       {
         contentHash: secondHash,
@@ -338,6 +341,7 @@ describe('AppDatabase', () => {
         relativePath: 'middle.mov',
         sizeBytes: 10,
         sourceUrl: null,
+        viewCount: 0,
       },
     ]);
     expect(database.getLibraryVideos(2, 2)).toEqual([
@@ -352,6 +356,7 @@ describe('AppDatabase', () => {
         relativePath: 'z-last.webm',
         sizeBytes: 10,
         sourceUrl: null,
+        viewCount: 0,
       },
     ]);
     database.close();
@@ -567,6 +572,23 @@ describe('AppDatabase', () => {
     database.close();
   });
 
+  it('stores a non-negative integer view count and defaults existing videos to zero', () => {
+    const database = new AppDatabase(createDatabasePath());
+    const contentHash = 'a'.repeat(64);
+    database.setLibraryRoot('/videos');
+    database.syncVideoFiles([scannedVideo('first.mp4', contentHash)], {
+      hashedFileCount: 1,
+      reusedHashCount: 0,
+    });
+
+    expect(database.getLibraryVideoByHash(contentHash)?.viewCount).toBe(0);
+    expect(database.setVideoViewCount(contentHash, 1_200)).toBe(1_200);
+    expect(database.getLibraryVideoByHash(contentHash)?.viewCount).toBe(1_200);
+    expect(() => database.setVideoViewCount(contentHash, -1)).toThrow('Invalid video view count.');
+    expect(() => database.setVideoViewCount(contentHash, 1.5)).toThrow('Invalid video view count.');
+    database.close();
+  });
+
   it('returns one deterministic file location by content hash', () => {
     const database = new AppDatabase(createDatabasePath());
     const contentHash = 'a'.repeat(64);
@@ -587,6 +609,7 @@ describe('AppDatabase', () => {
       relativePath: 'first.mp4',
       sizeBytes: 10,
       sourceUrl: null,
+      viewCount: 0,
     });
     expect(database.getLibraryVideoByHash('b'.repeat(64))).toBeNull();
     database.close();
@@ -849,6 +872,7 @@ describe('AppDatabase', () => {
       contentHash,
       fileName: 'humor.mp4',
       registeredAt: '2026-08-06T01:00:00.000Z',
+      viewCount: 0,
     });
     expect(migrated.getVideoMetadata(contentHash).current).toMatchObject({
       sourceCaption: 'Legacy caption',

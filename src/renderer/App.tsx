@@ -21,6 +21,7 @@ import {
   VIDEO_SOURCE_URL_MAX_LENGTH,
   VIDEO_TAG_NAME_MAX_LENGTH,
 } from '../shared/contracts';
+import { formatVideoViewCount, parseVideoViewCountInput } from '../shared/video-view-count';
 import { VideoEditor } from './VideoEditor';
 
 type LibrarySortOption = `${LibraryVideoSortField}-${LibraryVideoSortDirection}`;
@@ -152,6 +153,20 @@ function ReactionIcon({ direction, filled }: { direction: 'up' | 'down'; filled:
   );
 }
 
+function ViewCountIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M2.8 12s3.2-5.5 9.2-5.5 9.2 5.5 9.2 5.5-3.2 5.5-9.2 5.5S2.8 12 2.8 12Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="12" r="2.5" stroke="currentColor" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
 export function App() {
   const [state, setState] = useState<BootstrapState | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -205,6 +220,10 @@ export function App() {
   const [loadingVideoDetails, setLoadingVideoDetails] = useState(false);
   const [videoDetailsError, setVideoDetailsError] = useState<string | null>(null);
   const [savingReactionHash, setSavingReactionHash] = useState<string | null>(null);
+  const [editingViewCountVideo, setEditingViewCountVideo] = useState<LibraryVideoItem | null>(null);
+  const [viewCountInput, setViewCountInput] = useState('');
+  const [viewCountError, setViewCountError] = useState<string | null>(null);
+  const [savingViewCount, setSavingViewCount] = useState(false);
   const [editingVideo, setEditingVideo] = useState<LibraryVideoItem | null>(null);
   const [videoEditorVideo, setVideoEditorVideo] = useState<LibraryVideoItem | null>(null);
   const [videoMetadata, setVideoMetadata] = useState<VideoMetadataDetail | null>(null);
@@ -251,6 +270,7 @@ export function App() {
     if (
       !playingVideo &&
       !viewingVideo &&
+      !editingViewCountVideo &&
       !editingVideo &&
       !tagManagerOpen &&
       !scanningFolder &&
@@ -266,6 +286,8 @@ export function App() {
           closePlayer();
         } else if (viewingVideo) {
           closeVideoDetails();
+        } else if (editingViewCountVideo && !savingViewCount) {
+          closeViewCountEditor();
         } else if (metadataSearchOpen) {
           setMetadataSearchOpen(false);
         } else if (editingVideo) {
@@ -285,10 +307,12 @@ export function App() {
     };
   }, [
     editingVideo,
+    editingViewCountVideo,
     metadataSearchOpen,
     playingVideo,
     scanCompletedOpen,
     scanningFolder,
+    savingViewCount,
     tagManagerBusy,
     tagManagerOpen,
     viewingVideo,
@@ -597,6 +621,59 @@ export function App() {
       setError('영상 반응을 저장하지 못했습니다. 다시 시도하세요.');
     } finally {
       setSavingReactionHash(null);
+    }
+  }
+
+  function openViewCountEditor(video: LibraryVideoItem) {
+    setEditingViewCountVideo(video);
+    setViewCountInput(formatVideoViewCount(video.viewCount));
+    setViewCountError(null);
+  }
+
+  function closeViewCountEditor() {
+    setEditingViewCountVideo(null);
+    setViewCountInput('');
+    setViewCountError(null);
+    setSavingViewCount(false);
+  }
+
+  async function saveVideoViewCount(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingViewCountVideo || savingViewCount) {
+      return;
+    }
+
+    let viewCount: number;
+    try {
+      viewCount = parseVideoViewCountInput(viewCountInput);
+    } catch {
+      setViewCountError('0 이상의 숫자 또는 1.2K, 3M 형식으로 입력하세요.');
+      return;
+    }
+
+    setSavingViewCount(true);
+    setViewCountError(null);
+    try {
+      const savedViewCount = await window.localVideoManager.setVideoViewCount(
+        editingViewCountVideo.contentHash,
+        viewCount,
+      );
+      setVideoPage((currentPage) =>
+        currentPage
+          ? {
+              ...currentPage,
+              items: currentPage.items.map((video) =>
+                video.contentHash === editingViewCountVideo.contentHash
+                  ? { ...video, viewCount: savedViewCount }
+                  : video,
+              ),
+            }
+          : currentPage,
+      );
+      closeViewCountEditor();
+    } catch {
+      setViewCountError('조회수를 저장하지 못했습니다. 다시 시도하세요.');
+      setSavingViewCount(false);
     }
   }
 
@@ -1287,6 +1364,17 @@ export function App() {
                             <ReactionIcon direction="down" filled={video.reaction === 'unhype'} />
                           </button>
                         </div>
+                        <button
+                          className="video-thumbnail-view-count"
+                          type="button"
+                          onClick={() => openViewCountEditor(video)}
+                          disabled={loadingVideos}
+                          aria-label={`${video.fileName} 조회수 ${formatVideoViewCount(video.viewCount)}, 조회수 수정`}
+                          title="조회수 수정"
+                        >
+                          <ViewCountIcon />
+                          <span>{formatVideoViewCount(video.viewCount)}</span>
+                        </button>
                         {!video.fileAvailable ? (
                           <span className="file-status">파일 없음</span>
                         ) : null}
@@ -1895,6 +1983,83 @@ export function App() {
                 </div>
               )}
             </div>
+          </section>
+        </div>
+      ) : null}
+
+      {editingViewCountVideo ? (
+        <div
+          className="metadata-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !savingViewCount) {
+              closeViewCountEditor();
+            }
+          }}
+        >
+          <section
+            className="metadata-modal view-count-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="view-count-title"
+          >
+            <header className="metadata-header">
+              <div>
+                <p className="eyebrow">VIDEO VIEWS</p>
+                <h2 id="view-count-title">조회수 등록</h2>
+                <p title={editingViewCountVideo.fileName}>{editingViewCountVideo.fileName}</p>
+              </div>
+              <button
+                className="metadata-close-button"
+                type="button"
+                onClick={closeViewCountEditor}
+                aria-label="조회수 등록 닫기"
+                disabled={savingViewCount}
+              >
+                ×
+              </button>
+            </header>
+
+            <form className="metadata-form view-count-form" onSubmit={saveVideoViewCount}>
+              <label htmlFor="video-view-count">
+                <span>조회수</span>
+                <input
+                  id="video-view-count"
+                  type="text"
+                  inputMode="decimal"
+                  value={viewCountInput}
+                  onChange={(event) => {
+                    setViewCountInput(event.target.value);
+                    setViewCountError(null);
+                  }}
+                  placeholder="예: 1.2K, 3M, 1,250"
+                  maxLength={24}
+                  disabled={savingViewCount}
+                  autoFocus
+                  aria-describedby="view-count-help"
+                />
+              </label>
+              <p className="view-count-help" id="view-count-help">
+                K는 천, M은 백만 단위입니다. 일반 숫자로 입력해도 저장됩니다.
+              </p>
+              {viewCountError ? (
+                <p className="metadata-error" role="alert">
+                  {viewCountError}
+                </p>
+              ) : null}
+              <div className="metadata-actions">
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={closeViewCountEditor}
+                  disabled={savingViewCount}
+                >
+                  취소
+                </button>
+                <button className="primary-button" type="submit" disabled={savingViewCount}>
+                  {savingViewCount ? '저장 중…' : '조회수 저장'}
+                </button>
+              </div>
+            </form>
           </section>
         </div>
       ) : null}

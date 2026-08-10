@@ -2474,7 +2474,7 @@ h2 {
 .file-status {
   position: absolute;
   z-index: 3;
-  right: 10px;
+  left: 10px;
   bottom: 10px;
   padding: 5px 8px 5px 18px;
   border-radius: 999px;
@@ -2598,6 +2598,53 @@ h2 {
   width: 1px;
   height: 18px;
   background: rgba(255, 255, 255, 0.28);
+}
+
+.video-thumbnail-view-count {
+  position: absolute;
+  z-index: 4;
+  right: 10px;
+  bottom: 10px;
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  background: rgba(13, 17, 24, 0.7);
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.2);
+  color: white;
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 850;
+  backdrop-filter: blur(8px);
+  transition:
+    background 150ms ease,
+    transform 150ms ease;
+}
+
+.video-thumbnail-view-count svg {
+  width: 15px;
+  height: 15px;
+}
+
+.video-thumbnail-view-count span {
+  transform: translateY(-1px);
+}
+
+.video-thumbnail-view-count:hover:not(:disabled),
+.video-thumbnail-view-count:focus-visible {
+  background: rgba(66, 67, 177, 0.92);
+}
+
+.video-thumbnail-view-count:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.video-thumbnail-view-count:disabled {
+  cursor: wait;
+  opacity: 0.55;
 }
 
 .video-card-copy {
@@ -3245,6 +3292,21 @@ h2 {
 
 .video-details-modal {
   width: min(680px, 100%);
+}
+
+.view-count-modal {
+  width: min(440px, 100%);
+}
+
+.view-count-form {
+  gap: 14px;
+}
+
+.view-count-help {
+  margin: -2px 0 2px;
+  color: #7d8794;
+  font-size: 11px;
+  line-height: 1.55;
 }
 
 .video-details-body {

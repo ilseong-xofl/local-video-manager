@@ -20,6 +20,7 @@ import {
   type ScanLibraryResult,
   type StartVideoRenderResult,
 } from '../shared/contracts';
+import { parseVideoViewCount } from '../shared/video-view-count';
 import type { AppDatabase } from './database';
 import { resolveLibraryFilePath, type ThumbnailCache } from './thumbnail-cache';
 import {
@@ -232,6 +233,12 @@ export function registerIpcHandlers(
     database.setVideoReaction(parseContentHash(contentHash), parseVideoReaction(reaction)),
   );
 
+  ipcMain.handle(
+    IPC_CHANNELS.setVideoViewCount,
+    (_event, contentHash: unknown, viewCount: unknown) =>
+      database.setVideoViewCount(parseContentHash(contentHash), parseVideoViewCount(viewCount)),
+  );
+
   ipcMain.handle(IPC_CHANNELS.getVideoMetadata, (_event, contentHash: unknown) =>
     database.getVideoMetadata(parseContentHash(contentHash)),
   );
@@ -410,6 +417,7 @@ export function registerIpcHandlers(
     ipcMain.removeHandler(IPC_CHANNELS.deleteTag);
     ipcMain.removeHandler(IPC_CHANNELS.setVideoTags);
     ipcMain.removeHandler(IPC_CHANNELS.setVideoReaction);
+    ipcMain.removeHandler(IPC_CHANNELS.setVideoViewCount);
     ipcMain.removeHandler(IPC_CHANNELS.getVideoMetadata);
     ipcMain.removeHandler(IPC_CHANNELS.searchVideoMetadata);
     ipcMain.removeHandler(IPC_CHANNELS.saveVideoMetadata);

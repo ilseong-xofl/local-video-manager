@@ -64,6 +64,7 @@ describe('getLibraryVideoPage', () => {
       sourceCaption: null,
       sourceUrl: 'https://www.instagram.com/reel/example/',
     });
+    database.setVideoViewCount('a'.repeat(64), 1_200);
     const createThumbnail = vi.fn(async () => Buffer.from('thumbnail'));
     const thumbnailCache = new ThumbnailCache(join(directory, 'thumbnails'), createThumbnail);
 
@@ -80,6 +81,7 @@ describe('getLibraryVideoPage', () => {
       sourceUrl: 'https://www.instagram.com/reel/example/',
       tags: [{ id: tag.id, name: '유머' }],
       thumbnailDataUrl: expect.stringMatching(/^data:image\/jpeg;base64,/),
+      viewCount: 1_200,
     });
     expect(page.items[0]).not.toHaveProperty('absolutePath');
     expect(createThumbnail).toHaveBeenCalledTimes(2);

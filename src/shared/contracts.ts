@@ -12,6 +12,7 @@ export const IPC_CHANNELS = {
   deleteTag: 'tags:delete',
   setVideoTags: 'tags:set-for-video',
   setVideoReaction: 'library:set-video-reaction',
+  setVideoViewCount: 'library:set-video-view-count',
   getVideoMetadata: 'library:get-video-metadata',
   searchVideoMetadata: 'library:search-video-metadata',
   saveVideoMetadata: 'library:save-video-metadata',
@@ -253,6 +254,7 @@ export interface LibraryVideo {
   relativePath: string;
   sizeBytes: number;
   sourceUrl: string | null;
+  viewCount: number;
 }
 
 export interface LibraryVideoItem extends LibraryVideo {
@@ -342,6 +344,7 @@ export interface LocalVideoManagerApi {
     contentHash: string,
     reaction: VideoReaction | null,
   ): Promise<VideoReaction | null>;
+  setVideoViewCount(contentHash: string, viewCount: number): Promise<number>;
   getLibraryVideoPage(pageIndex: number, query: LibraryVideoQuery): Promise<LibraryVideoPage>;
   openVideoSourceUrl(contentHash: string): Promise<void>;
   revealVideoFile(contentHash: string): Promise<void>;

@@ -38,7 +38,7 @@ const LEGACY_LIBRARY_ROOT_KEY = 'library_root';
 const LEGACY_LAST_SCANNED_AT_KEY = 'last_scanned_at';
 const METADATA_SEARCH_LIMIT = 50;
 const DATABASE_APPLICATION_ID = 0x4c564d31;
-const DATABASE_SCHEMA_VERSION = 5;
+const DATABASE_SCHEMA_VERSION = 6;
 const ALL_LIBRARY_VIDEOS_QUERY: LibraryVideoQuery = {
   dateFromMs: 0,
   dateToMs: Date.parse('9999-12-31T23:59:59.999Z'),
@@ -86,6 +86,7 @@ interface LibraryVideoRow {
   relativePath: string;
   sizeBytes: number;
   sourceUrl: string | null;
+  viewCount: number;
 }
 
 interface MetadataSearchRow {
@@ -544,7 +545,8 @@ export class AppDatabase {
             videos.created_at AS registeredAt,
             ranked_files.relativePath,
             ranked_files.sizeBytes,
-            video_metadata.source_url AS sourceUrl
+            video_metadata.source_url AS sourceUrl,
+            videos.view_count AS viewCount
           FROM ranked_files
           JOIN videos ON videos.content_hash = ranked_files.contentHash
           LEFT JOIN video_metadata
@@ -626,7 +628,8 @@ export class AppDatabase {
             videos.created_at AS registeredAt,
             video_files.relative_path AS relativePath,
             video_files.size_bytes AS sizeBytes,
-            video_metadata.source_url AS sourceUrl
+            video_metadata.source_url AS sourceUrl,
+            videos.view_count AS viewCount
           FROM video_files
           JOIN videos ON videos.content_hash = video_files.content_hash
           LEFT JOIN video_metadata
@@ -783,6 +786,18 @@ export class AppDatabase {
       .prepare('UPDATE videos SET reaction = ? WHERE content_hash = ?')
       .run(reaction, contentHash);
     return reaction;
+  }
+
+  public setVideoViewCount(contentHash: string, viewCount: number): number {
+    this.assertVideoExists(contentHash);
+    if (!Number.isSafeInteger(viewCount) || viewCount < 0) {
+      throw new Error('Invalid video view count.');
+    }
+
+    this.database
+      .prepare('UPDATE videos SET view_count = ? WHERE content_hash = ?')
+      .run(viewCount, contentHash);
+    return viewCount;
   }
 
   public getVideoEditorPresets(): VideoEditorPreset[] {
@@ -1357,7 +1372,8 @@ export class AppDatabase {
       CREATE TABLE IF NOT EXISTS videos (
         content_hash TEXT PRIMARY KEY,
         created_at TEXT NOT NULL,
-        reaction TEXT CHECK (reaction IS NULL OR reaction IN ('hype', 'unhype'))
+        reaction TEXT CHECK (reaction IS NULL OR reaction IN ('hype', 'unhype')),
+        view_count INTEGER NOT NULL DEFAULT 0 CHECK (view_count >= 0)
       );
 
       CREATE TABLE IF NOT EXISTS managed_folders (
@@ -1453,6 +1469,13 @@ export class AppDatabase {
       this.database.exec(`
         ALTER TABLE videos
         ADD COLUMN reaction TEXT CHECK (reaction IS NULL OR reaction IN ('hype', 'unhype'))
+      `);
+    }
+
+    if (!this.columnExists('videos', 'view_count')) {
+      this.database.exec(`
+        ALTER TABLE videos
+        ADD COLUMN view_count INTEGER NOT NULL DEFAULT 0 CHECK (view_count >= 0)
       `);
     }
 
