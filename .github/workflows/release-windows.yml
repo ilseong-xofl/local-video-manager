@@ -28,11 +28,39 @@ jobs:
             throw "Release tag must be $expectedTag, received $env:GITHUB_REF_NAME"
           }
       - run: pnpm make --arch=x64
+      - name: Verify outputs and create checksums
+        shell: pwsh
+        run: |
+          $outputDir = "out/make/squirrel.windows/x64"
+          $requiredFiles = @(
+            "LocalVideoManager-win32-x64-Setup.exe",
+            "RELEASES"
+          )
+
+          foreach ($fileName in $requiredFiles) {
+            if (-not (Test-Path (Join-Path $outputDir $fileName))) {
+              throw "Missing Windows release output: $fileName"
+            }
+          }
+
+          $packages = @(Get-ChildItem $outputDir -Filter "*-full.nupkg" -File)
+          if ($packages.Count -ne 1) {
+            throw "Expected exactly one full NuGet package, found $($packages.Count)."
+          }
+
+          $checksums = Get-ChildItem $outputDir -File |
+            Sort-Object Name |
+            ForEach-Object {
+              $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+              "$hash  $($_.Name)"
+            }
+          Set-Content (Join-Path $outputDir "SHA256SUMS.txt") $checksums -Encoding utf8NoBOM
       - uses: actions/upload-artifact@v7
         with:
           name: local-video-manager-windows-x64
           path: out/make/squirrel.windows/x64/
           if-no-files-found: error
+          retention-days: 14
       - name: Publish GitHub Release
         shell: pwsh
         env:

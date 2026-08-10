@@ -45,6 +45,21 @@ export class ThumbnailCache {
     return thumbnail;
   }
 
+  public async getCachedThumbnailDataUrl(contentHash: string): Promise<string | null> {
+    if (!CONTENT_HASH_PATTERN.test(contentHash)) {
+      throw new Error('Invalid video content hash.');
+    }
+
+    try {
+      return toJpegDataUrl(await readFile(join(this.cacheDirectory, `${contentHash}.jpg`)));
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+        return null;
+      }
+      throw error;
+    }
+  }
+
   private async loadOrCreateThumbnail(
     contentHash: string,
     videoPath: string,

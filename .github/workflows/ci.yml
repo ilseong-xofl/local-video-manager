@@ -4,9 +4,14 @@ on:
   push:
     branches: ['**']
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   quality:
+    if: github.event_name != 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
@@ -23,3 +28,73 @@ jobs:
       - run: pnpm check
       - if: runner.os == 'Windows'
         run: pnpm package
+
+  windows-candidate:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify candidate source branch
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF_NAME -ne "main") {
+            throw "Windows candidates must be built from main, received $env:GITHUB_REF_NAME."
+          }
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - name: Verify candidate version
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $tag = "v$version"
+          $releaseJson = gh release list --repo $env:GITHUB_REPOSITORY --limit 100 --json tagName
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to read existing GitHub Releases."
+          }
+
+          $releasedTags = @($releaseJson | ConvertFrom-Json | ForEach-Object { $_.tagName })
+          if ($releasedTags -contains $tag) {
+            throw "Version $version is already released as $tag. Increase package.json version before building a candidate."
+          }
+      - name: Build Windows installer candidate
+        run: pnpm make --arch=x64
+      - name: Verify outputs and create checksums
+        shell: pwsh
+        run: |
+          $outputDir = "out/make/squirrel.windows/x64"
+          $requiredFiles = @(
+            "LocalVideoManager-win32-x64-Setup.exe",
+            "RELEASES"
+          )
+
+          foreach ($fileName in $requiredFiles) {
+            if (-not (Test-Path (Join-Path $outputDir $fileName))) {
+              throw "Missing Windows candidate output: $fileName"
+            }
+          }
+
+          $packages = @(Get-ChildItem $outputDir -Filter "*-full.nupkg" -File)
+          if ($packages.Count -ne 1) {
+            throw "Expected exactly one full NuGet package, found $($packages.Count)."
+          }
+
+          $checksums = Get-ChildItem $outputDir -File |
+            Sort-Object Name |
+            ForEach-Object {
+              $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+              "$hash  $($_.Name)"
+            }
+          Set-Content (Join-Path $outputDir "SHA256SUMS.txt") $checksums -Encoding utf8NoBOM
+      - uses: actions/upload-artifact@v7
+        with:
+          name: local-video-manager-windows-candidate-${{ github.sha }}
+          path: out/make/squirrel.windows/x64/
+          if-no-files-found: error
+          retention-days: 14

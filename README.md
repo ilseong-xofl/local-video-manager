@@ -8,16 +8,21 @@
 - React + TypeScript UI
 - 네이티브 폴더 선택
 - 설치별 `library_id` 생성 및 SQLite 영속화
-- 선택한 영상 폴더 영속화
-- 선택 폴더와 하위 폴더의 영상 재귀 스캔
+- 여러 관리 폴더 기록 보존과 현재 폴더 전환
+- 선택 폴더를 포함한 최대 3단계 영상 재귀 스캔
 - SHA-256 영상 식별과 변경되지 않은 파일의 hash cache
+- 등록일·수정일 기간 필터와 오름차순·내림차순 정렬, 파일명 부분검색
+- 삭제·교체된 파일 위치 이력 보존
 - 운영체제 영상 preview 기반 JPEG 썸네일 cache
 - 고유 영상 24개 단위 페이지 그리드
 - 해시 기반 local byte-range streaming 영상 재생 모달
+- 영상별 원본 URL·원본 캡션 등록·수정과 SQLite 변경 이력
+- 현재 목록에 없는 과거 영상 검색과 URL·캡션 복사
+- 무결성·schema 검사와 복원 직전 자동 보존을 포함한 SQLite DB 백업·복원
 - 공개 GitHub Releases 기반 Squirrel.Windows 자동 업데이트
 - Mac/Windows 품질 검사와 Windows 패키징 CI
 
-Auth, DB 백업·복원, 중앙 API와 Gemini는 아직 구현하지 않았습니다. 현재 범위의 기준은 [제품 범위](docs/product-scope.md)에 있습니다.
+Auth와 중앙 API는 아직 구현하지 않았습니다. Gemini 생성은 영상 편집 기능과 함께 Phase 2에서 개발합니다. 현재 범위의 기준은 [제품 범위](docs/product-scope.md)에 있습니다.
 
 ## 개발 시작
 

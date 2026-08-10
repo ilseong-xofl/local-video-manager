@@ -34,7 +34,14 @@ describe('ThumbnailCache', () => {
       `data:image/jpeg;base64,${Buffer.from('thumbnail').toString('base64')}`,
     );
     expect(secondResult).toBe(firstResult);
+    await expect(cache.getCachedThumbnailDataUrl(contentHash)).resolves.toBe(firstResult);
     expect(createThumbnail).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns null when a searched video has no cached thumbnail', async () => {
+    const cache = new ThumbnailCache(createTemporaryDirectory(), async () => Buffer.from('image'));
+
+    await expect(cache.getCachedThumbnailDataUrl('b'.repeat(64))).resolves.toBeNull();
   });
 
   it('rejects invalid cache keys', async () => {

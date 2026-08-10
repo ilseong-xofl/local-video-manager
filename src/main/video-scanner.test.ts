@@ -48,6 +48,25 @@ describe('scanVideoDirectory', () => {
     ]);
     expect(result.hashedFileCount).toBe(3);
     expect(result.reusedHashCount).toBe(0);
+    expect(result.excludedDirectoryCount).toBe(0);
+  });
+
+  it('scans through three folder levels including the selected root', async () => {
+    const root = createLibraryRoot();
+    mkdirSync(join(root, 'B', 'C', 'D'), { recursive: true });
+    writeFileSync(join(root, 'root.mp4'), 'root-video');
+    writeFileSync(join(root, 'B', 'nested.mp4'), 'nested-video');
+    writeFileSync(join(root, 'B', 'C', 'allowed.mp4'), 'allowed-video');
+    writeFileSync(join(root, 'B', 'C', 'D', 'excluded.mp4'), 'excluded-video');
+
+    const result = await scanVideoDirectory(root, []);
+
+    expect(result.files.map((file) => file.relativePath)).toEqual([
+      'B/C/allowed.mp4',
+      'B/nested.mp4',
+      'root.mp4',
+    ]);
+    expect(result.excludedDirectoryCount).toBe(1);
   });
 
   it('reuses hashes for unchanged paths and recalculates changed files', async () => {

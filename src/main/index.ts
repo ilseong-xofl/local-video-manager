@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { app, BrowserWindow, nativeImage, protocol } from 'electron';
 import squirrelStartup from 'electron-squirrel-startup';
 
-import { AppDatabase } from './database';
+import { AppDatabase, applyPendingDatabaseRestore } from './database';
 import { registerIpcHandlers } from './ipc';
 import { ThumbnailCache } from './thumbnail-cache';
 import { configureAutoUpdates } from './updates';
@@ -66,7 +66,17 @@ if (squirrelStartup) {
 
   void app.whenReady().then(() => {
     const userDataPath = app.getPath('userData');
-    database = new AppDatabase(join(userDataPath, 'local-video-manager.sqlite'));
+    const databasePath = join(userDataPath, 'local-video-manager.sqlite');
+    const pendingRestorePath = join(userDataPath, 'pending-database-restore.sqlite');
+    try {
+      applyPendingDatabaseRestore(databasePath, pendingRestorePath);
+    } catch (error) {
+      console.error(
+        '[database] Pending restore failed; the previous database was preserved.',
+        error,
+      );
+    }
+    database = new AppDatabase(databasePath);
     const thumbnailCache = new ThumbnailCache(
       join(userDataPath, 'thumbnails'),
       createSystemThumbnail,
