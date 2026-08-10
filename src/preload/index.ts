@@ -32,6 +32,13 @@ const api: LocalVideoManagerApi = {
   updateVideoEditorPreset: (id, input) =>
     ipcRenderer.invoke(IPC_CHANNELS.updateVideoEditorPreset, id, input),
   deleteVideoEditorPreset: (id) => ipcRenderer.invoke(IPC_CHANNELS.deleteVideoEditorPreset, id),
+  getVideoEditorTextPresets: () => ipcRenderer.invoke(IPC_CHANNELS.getVideoEditorTextPresets),
+  createVideoEditorTextPreset: (input) =>
+    ipcRenderer.invoke(IPC_CHANNELS.createVideoEditorTextPreset, input),
+  updateVideoEditorTextPreset: (id, input) =>
+    ipcRenderer.invoke(IPC_CHANNELS.updateVideoEditorTextPreset, id, input),
+  deleteVideoEditorTextPreset: (id) =>
+    ipcRenderer.invoke(IPC_CHANNELS.deleteVideoEditorTextPreset, id),
   startVideoRender: (contentHash, request) =>
     ipcRenderer.invoke(IPC_CHANNELS.startVideoRender, contentHash, request),
   cancelVideoRender: (jobId) => ipcRenderer.invoke(IPC_CHANNELS.cancelVideoRender, jobId),

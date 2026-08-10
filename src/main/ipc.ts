@@ -25,6 +25,8 @@ import { resolveLibraryFilePath, type ThumbnailCache } from './thumbnail-cache';
 import {
   parseVideoEditorPresetId,
   parseVideoEditorPresetInput,
+  parseVideoEditorTextPresetId,
+  parseVideoEditorTextPresetInput,
   parseVideoRenderJobId,
   parseVideoRenderRequest,
 } from './video-editor';
@@ -322,6 +324,27 @@ export function registerIpcHandlers(
     database.deleteVideoEditorPreset(parseVideoEditorPresetId(presetId)),
   );
 
+  ipcMain.handle(IPC_CHANNELS.getVideoEditorTextPresets, () =>
+    database.getVideoEditorTextPresets(),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.createVideoEditorTextPreset, (_event, input: unknown) =>
+    database.createVideoEditorTextPreset(parseVideoEditorTextPresetInput(input)),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.updateVideoEditorTextPreset,
+    (_event, presetId: unknown, input: unknown) =>
+      database.updateVideoEditorTextPreset(
+        parseVideoEditorTextPresetId(presetId),
+        parseVideoEditorTextPresetInput(input),
+      ),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.deleteVideoEditorTextPreset, (_event, presetId: unknown) =>
+    database.deleteVideoEditorTextPreset(parseVideoEditorTextPresetId(presetId)),
+  );
+
   ipcMain.handle(
     IPC_CHANNELS.startVideoRender,
     async (event, contentHash: unknown, requestValue: unknown): Promise<StartVideoRenderResult> => {
@@ -395,6 +418,10 @@ export function registerIpcHandlers(
     ipcMain.removeHandler(IPC_CHANNELS.createVideoEditorPreset);
     ipcMain.removeHandler(IPC_CHANNELS.updateVideoEditorPreset);
     ipcMain.removeHandler(IPC_CHANNELS.deleteVideoEditorPreset);
+    ipcMain.removeHandler(IPC_CHANNELS.getVideoEditorTextPresets);
+    ipcMain.removeHandler(IPC_CHANNELS.createVideoEditorTextPreset);
+    ipcMain.removeHandler(IPC_CHANNELS.updateVideoEditorTextPreset);
+    ipcMain.removeHandler(IPC_CHANNELS.deleteVideoEditorTextPreset);
     ipcMain.removeHandler(IPC_CHANNELS.startVideoRender);
     ipcMain.removeHandler(IPC_CHANNELS.cancelVideoRender);
     ipcMain.removeHandler(IPC_CHANNELS.revealRenderedVideo);

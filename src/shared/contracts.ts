@@ -20,6 +20,10 @@ export const IPC_CHANNELS = {
   createVideoEditorPreset: 'video-editor:create-preset',
   updateVideoEditorPreset: 'video-editor:update-preset',
   deleteVideoEditorPreset: 'video-editor:delete-preset',
+  getVideoEditorTextPresets: 'video-editor:get-text-presets',
+  createVideoEditorTextPreset: 'video-editor:create-text-preset',
+  updateVideoEditorTextPreset: 'video-editor:update-text-preset',
+  deleteVideoEditorTextPreset: 'video-editor:delete-text-preset',
   startVideoRender: 'video-editor:start-render',
   cancelVideoRender: 'video-editor:cancel-render',
   revealRenderedVideo: 'video-editor:reveal-rendered-video',
@@ -32,6 +36,7 @@ export const VIDEO_METADATA_SEARCH_MAX_LENGTH = 200;
 export const VIDEO_LIBRARY_SEARCH_MAX_LENGTH = 200;
 export const VIDEO_TAG_NAME_MAX_LENGTH = 40;
 export const VIDEO_EDITOR_PRESET_NAME_MAX_LENGTH = 60;
+export const VIDEO_EDITOR_TEXT_PRESET_LIMIT = 5;
 export const VIDEO_EDITOR_OVERLAY_IMAGE_MAX_LENGTH = 30_000_000;
 
 export const VIDEO_EDITOR_PLATFORM_RATIOS = {
@@ -57,11 +62,81 @@ export type VideoEditorAspectRatio = keyof typeof VIDEO_EDITOR_OUTPUT_SIZES;
 export type VideoEditorResizeMode = 'crop' | 'letterbox';
 export type VideoEditorTextAlign = 'left' | 'center' | 'right';
 export type VideoEditorFontWeight = 400 | 700 | 900;
+export type VideoEditorFontMarket = 'KR' | 'JP' | 'US';
 export type VideoRenderStatus = 'running' | 'completed' | 'cancelled' | 'failed';
+
+export interface VideoEditorFontOption {
+  label: string;
+  value: string;
+}
+
+export const VIDEO_EDITOR_FONT_MARKET_LABELS: Record<VideoEditorFontMarket, string> = {
+  KR: '한국',
+  JP: '일본',
+  US: '미국',
+};
+
+export const VIDEO_EDITOR_FONT_OPTIONS_BY_MARKET: Record<
+  VideoEditorFontMarket,
+  readonly VideoEditorFontOption[]
+> = {
+  KR: [
+    { label: '기본', value: 'Noto Sans KR' },
+    { label: '임팩트', value: 'Black Han Sans' },
+    { label: '둥근 제목', value: 'Jua' },
+    { label: '각진 고딕', value: 'Do Hyeon' },
+    { label: '포인트', value: 'Gugi' },
+    { label: '손글씨', value: 'Nanum Pen Script' },
+    { label: '본문형', value: 'Nanum Gothic' },
+    { label: '라운드', value: 'Sunflower' },
+    { label: '손맛', value: 'Gamja Flower' },
+    { label: '붓글씨', value: 'Yeon Sung' },
+    { label: '고딕 A1', value: 'Gothic A1' },
+    { label: '귀여운', value: 'Cute Font' },
+    { label: '두꺼운 포인트', value: 'Bagel Fat One' },
+    { label: '가벼운', value: 'Hi Melody' },
+    { label: '개성', value: 'East Sea Dokdo' },
+  ],
+  JP: [
+    { label: '기본', value: 'Noto Sans JP' },
+    { label: 'M PLUS Rounded', value: 'M PLUS Rounded 1c' },
+    { label: 'Kosugi Maru', value: 'Kosugi Maru' },
+    { label: 'ポップ', value: 'Yusei Magic' },
+    { label: 'ロック', value: 'RocknRoll One' },
+    { label: 'レトロ', value: 'Reggae One' },
+    { label: 'ドット', value: 'DotGothic16' },
+    { label: 'ゴシック', value: 'Zen Kaku Gothic New' },
+  ],
+  US: [
+    { label: 'Montserrat', value: 'Montserrat' },
+    { label: 'Anton', value: 'Anton' },
+    { label: 'Bebas Neue', value: 'Bebas Neue' },
+    { label: 'Oswald', value: 'Oswald' },
+    { label: 'Archivo Black', value: 'Archivo Black' },
+    { label: 'Rubik', value: 'Rubik' },
+    { label: 'Fredoka', value: 'Fredoka' },
+    { label: 'Bangers', value: 'Bangers' },
+    { label: 'Permanent Marker', value: 'Permanent Marker' },
+    { label: 'Righteous', value: 'Righteous' },
+  ],
+};
+
+export function getDefaultVideoEditorFontFamily(market: VideoEditorFontMarket): string {
+  return VIDEO_EDITOR_FONT_OPTIONS_BY_MARKET[market][0].value;
+}
+
+export function isVideoEditorFontFamily(
+  market: VideoEditorFontMarket,
+  fontFamily: string,
+): boolean {
+  return VIDEO_EDITOR_FONT_OPTIONS_BY_MARKET[market].some((option) => option.value === fontFamily);
+}
 
 export interface VideoEditorTextStyle {
   backgroundColor: string;
   backgroundOpacity: number;
+  fontFamily: string;
+  fontMarket: VideoEditorFontMarket;
   fontSizePercent: number;
   fontWeight: VideoEditorFontWeight;
   textAlign: VideoEditorTextAlign;
@@ -95,6 +170,21 @@ export interface VideoEditorTextOverlay {
   region: VideoEditorRegion;
   style: VideoEditorTextStyle;
   text: string;
+}
+
+export interface VideoEditorTextPresetOverlay {
+  region: VideoEditorRegion;
+  style: VideoEditorTextStyle;
+}
+
+export interface VideoEditorTextPresetInput {
+  name: string;
+  overlays: VideoEditorTextPresetOverlay[];
+}
+
+export interface VideoEditorTextPreset extends VideoEditorTextPresetInput {
+  createdAt: string;
+  id: number;
 }
 
 export interface VideoRenderRequest {
@@ -270,6 +360,13 @@ export interface LocalVideoManagerApi {
   createVideoEditorPreset(input: VideoEditorPresetInput): Promise<VideoEditorPreset>;
   updateVideoEditorPreset(id: number, input: VideoEditorPresetInput): Promise<VideoEditorPreset>;
   deleteVideoEditorPreset(id: number): Promise<void>;
+  getVideoEditorTextPresets(): Promise<VideoEditorTextPreset[]>;
+  createVideoEditorTextPreset(input: VideoEditorTextPresetInput): Promise<VideoEditorTextPreset>;
+  updateVideoEditorTextPreset(
+    id: number,
+    input: VideoEditorTextPresetInput,
+  ): Promise<VideoEditorTextPreset>;
+  deleteVideoEditorTextPreset(id: number): Promise<void>;
   startVideoRender(
     contentHash: string,
     request: VideoRenderRequest,

@@ -87,6 +87,8 @@ describe('AppDatabase', () => {
       defaultTextStyle: {
         backgroundColor: '#000000',
         backgroundOpacity: 0.8,
+        fontFamily: 'Noto Sans KR',
+        fontMarket: 'KR',
         fontSizePercent: 4.5,
         fontWeight: 700,
         textAlign: 'center',
@@ -96,6 +98,24 @@ describe('AppDatabase', () => {
       name: '릴스 기본',
       platform: 'instagram',
       resizeMode: 'crop',
+    });
+    const backedUpTextPreset = database.createVideoEditorTextPreset({
+      name: '상단 제목',
+      overlays: [
+        {
+          region: { height: 0.16, width: 0.76, x: 0.12, y: 0.08 },
+          style: {
+            backgroundColor: '#111111',
+            backgroundOpacity: 1,
+            fontFamily: 'Noto Sans KR',
+            fontMarket: 'KR',
+            fontSizePercent: 3,
+            fontWeight: 700,
+            textAlign: 'center',
+            textColor: '#FFFFFF',
+          },
+        },
+      ],
     });
     const libraryId = database.getOrCreateLibraryId();
 
@@ -107,7 +127,7 @@ describe('AppDatabase', () => {
           'SELECT app_version AS appVersion, schema_version AS schemaVersion FROM backup_manifest',
         )
         .get(),
-    ).toEqual({ appVersion: '0.1.1', schemaVersion: 4 });
+    ).toEqual({ appVersion: '0.1.1', schemaVersion: 5 });
     backupFile.close();
 
     database.saveVideoMetadata(contentHash, {
@@ -133,6 +153,9 @@ describe('AppDatabase', () => {
     expect(restoredDatabase.getLibraryVideoByHash(contentHash)?.reaction).toBe('hype');
     expect(restoredDatabase.getVideoEditorPresets()).toEqual([
       expect.objectContaining({ id: backedUpPreset.id, name: '릴스 기본' }),
+    ]);
+    expect(restoredDatabase.getVideoEditorTextPresets()).toEqual([
+      expect.objectContaining({ id: backedUpTextPreset.id, name: '상단 제목' }),
     ]);
     restoredDatabase.close();
 
@@ -853,6 +876,8 @@ describe('AppDatabase', () => {
       defaultTextStyle: {
         backgroundColor: '#111111',
         backgroundOpacity: 0.75,
+        fontFamily: 'Noto Sans JP',
+        fontMarket: 'JP',
         fontSizePercent: 5,
         fontWeight: 700,
         textAlign: 'center',
@@ -864,6 +889,10 @@ describe('AppDatabase', () => {
       resizeMode: 'crop',
     });
 
+    expect(created.defaultTextStyle).toMatchObject({
+      fontFamily: 'Noto Sans JP',
+      fontMarket: 'JP',
+    });
     expect(database.getVideoEditorPresets()).toEqual([created]);
 
     const updated = database.updateVideoEditorPreset(created.id, {
@@ -878,6 +907,10 @@ describe('AppDatabase', () => {
       name: '틱톡 정사각형',
       resizeMode: 'letterbox',
     });
+    expect(updated.defaultTextStyle).toMatchObject({
+      fontFamily: 'Noto Sans JP',
+      fontMarket: 'JP',
+    });
 
     expect(() =>
       database.createVideoEditorPreset({
@@ -890,6 +923,164 @@ describe('AppDatabase', () => {
     expect(database.getVideoEditorPresets()).toEqual([]);
     expect(() => database.deleteVideoEditorPreset(created.id)).toThrow(
       'Video editor preset not found.',
+    );
+    database.close();
+  });
+
+  it('lists newly created video editor presets first', () => {
+    const database = new AppDatabase(createDatabasePath());
+    const input = {
+      aspectRatio: '9:16' as const,
+      defaultTextStyle: {
+        backgroundColor: '#111111',
+        backgroundOpacity: 1,
+        fontFamily: 'Montserrat',
+        fontMarket: 'US' as const,
+        fontSizePercent: 3,
+        fontWeight: 700 as const,
+        textAlign: 'center' as const,
+        textColor: '#FFFFFF',
+      },
+      letterboxColor: '#000000',
+      platform: 'instagram' as const,
+      resizeMode: 'crop' as const,
+    };
+    const first = database.createVideoEditorPreset({ ...input, name: '첫 설정' });
+    const second = database.createVideoEditorPreset({ ...input, name: '두 번째 설정' });
+
+    expect(database.getVideoEditorPresets().map((preset) => preset.id)).toEqual([
+      second.id,
+      first.id,
+    ]);
+    database.close();
+  });
+
+  it('adds the Korean default font when loading legacy editor styles', () => {
+    const databasePath = createDatabasePath();
+    const database = new AppDatabase(databasePath);
+    const style = {
+      backgroundColor: '#111111',
+      backgroundOpacity: 1,
+      fontFamily: 'Noto Sans JP',
+      fontMarket: 'JP' as const,
+      fontSizePercent: 3,
+      fontWeight: 700 as const,
+      textAlign: 'center' as const,
+      textColor: '#FFFFFF',
+    };
+    const preset = database.createVideoEditorPreset({
+      aspectRatio: '9:16',
+      defaultTextStyle: style,
+      letterboxColor: '#000000',
+      name: '이전 편집 설정',
+      platform: 'instagram',
+      resizeMode: 'letterbox',
+    });
+    const textPreset = database.createVideoEditorTextPreset({
+      name: '이전 텍스트 프리셋',
+      overlays: [{ region: { height: 0.2, width: 0.8, x: 0.1, y: 0.1 }, style }],
+    });
+    database.close();
+
+    const legacyStyle = { ...style } as Partial<typeof style>;
+    delete legacyStyle.fontFamily;
+    delete legacyStyle.fontMarket;
+    const rawDatabase = new Database(databasePath);
+    rawDatabase
+      .prepare('UPDATE video_editor_presets SET default_text_style_json = ? WHERE id = ?')
+      .run(JSON.stringify(legacyStyle), preset.id);
+    rawDatabase
+      .prepare('UPDATE video_editor_text_presets SET overlays_json = ? WHERE id = ?')
+      .run(
+        JSON.stringify([
+          { region: { height: 0.2, width: 0.8, x: 0.1, y: 0.1 }, style: legacyStyle },
+        ]),
+        textPreset.id,
+      );
+    rawDatabase.close();
+
+    const reopenedDatabase = new AppDatabase(databasePath);
+    expect(reopenedDatabase.getVideoEditorPresets()[0].defaultTextStyle).toMatchObject({
+      fontFamily: 'Noto Sans KR',
+      fontMarket: 'KR',
+    });
+    expect(reopenedDatabase.getVideoEditorTextPresets()[0].overlays[0].style).toMatchObject({
+      fontFamily: 'Noto Sans KR',
+      fontMarket: 'KR',
+    });
+    reopenedDatabase.close();
+  });
+
+  it('creates, updates, lists, limits, and deletes global text presets', () => {
+    const database = new AppDatabase(createDatabasePath());
+    const input = {
+      overlays: [
+        {
+          region: { height: 0.16, width: 0.76, x: 0.12, y: 0.08 },
+          style: {
+            backgroundColor: '#111111',
+            backgroundOpacity: 1,
+            fontFamily: 'Noto Sans KR',
+            fontMarket: 'KR' as const,
+            fontSizePercent: 3,
+            fontWeight: 700 as const,
+            textAlign: 'center' as const,
+            textColor: '#FFFFFF',
+          },
+        },
+      ],
+    };
+    const presets = Array.from({ length: 5 }, (_, index) =>
+      database.createVideoEditorTextPreset({ ...input, name: `프리셋 ${index + 1}` }),
+    );
+
+    expect(presets[0].overlays[0].style).toMatchObject({
+      fontFamily: 'Noto Sans KR',
+      fontMarket: 'KR',
+    });
+    expect(database.getVideoEditorTextPresets().map((preset) => preset.id)).toEqual(
+      [...presets].reverse().map((preset) => preset.id),
+    );
+
+    const updated = database.updateVideoEditorTextPreset(presets[1].id, {
+      name: '프리셋 2 수정',
+      overlays: [
+        {
+          region: { height: 0.22, width: 0.68, x: 0.16, y: 0.12 },
+          style: { ...input.overlays[0].style, fontSizePercent: 5 },
+        },
+      ],
+    });
+    expect(updated).toMatchObject({
+      createdAt: presets[1].createdAt,
+      id: presets[1].id,
+      name: '프리셋 2 수정',
+      overlays: [
+        {
+          region: { height: 0.22, width: 0.68, x: 0.16, y: 0.12 },
+          style: { ...input.overlays[0].style, fontSizePercent: 5 },
+        },
+      ],
+    });
+    expect(database.getVideoEditorTextPresets()).toHaveLength(5);
+    expect(() =>
+      database.updateVideoEditorTextPreset(presets[1].id, {
+        ...input,
+        name: '프리셋 1',
+      }),
+    ).toThrow('A video editor text preset with this name already exists.');
+
+    expect(() =>
+      database.createVideoEditorTextPreset({ ...input, name: '여섯 번째 프리셋' }),
+    ).toThrow('The video editor text preset limit has been reached.');
+    expect(() => database.createVideoEditorTextPreset({ ...input, name: '프리셋 1' })).toThrow(
+      'A video editor text preset with this name already exists.',
+    );
+
+    database.deleteVideoEditorTextPreset(presets[0].id);
+    expect(database.getVideoEditorTextPresets()).toHaveLength(4);
+    expect(() => database.deleteVideoEditorTextPreset(presets[0].id)).toThrow(
+      'Video editor text preset not found.',
     );
     database.close();
   });

@@ -3,23 +3,33 @@ import {
   useMemo,
   useRef,
   useState,
+  type FormEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 
 import {
+  VIDEO_EDITOR_FONT_MARKET_LABELS,
+  VIDEO_EDITOR_FONT_OPTIONS_BY_MARKET,
   VIDEO_EDITOR_OUTPUT_SIZES,
   VIDEO_EDITOR_PLATFORM_RATIOS,
   VIDEO_EDITOR_PRESET_NAME_MAX_LENGTH,
+  VIDEO_EDITOR_TEXT_PRESET_LIMIT,
+  getDefaultVideoEditorFontFamily,
+  isVideoEditorFontFamily,
   type LibraryVideoItem,
   type VideoEditorAspectRatio,
+  type VideoEditorFontMarket,
   type VideoEditorPlatform,
   type VideoEditorPreset,
   type VideoEditorPresetInput,
   type VideoEditorRegion,
   type VideoEditorTextOverlay,
+  type VideoEditorTextPreset,
   type VideoEditorTextStyle,
   type VideoRenderProgress,
 } from '../shared/contracts';
+import { fitPreviewStage } from './video-editor-layout';
+import { getOverlaySelectionAfterDelete } from './video-editor-overlays';
 
 interface VideoEditorProps {
   onBack(): void;
@@ -34,6 +44,16 @@ interface DragState {
   startY: number;
 }
 
+type PresetDialogMode = 'create' | 'edit';
+type TextPresetDialogMode = 'choice' | 'create' | 'rename';
+type PlatformSettings = Pick<
+  VideoEditorPresetInput,
+  'aspectRatio' | 'letterboxColor' | 'platform' | 'resizeMode'
+>;
+
+const MEDIA_CONTROLS_HEIGHT = 42;
+const MAX_PREVIEW_STAGE_HEIGHT = 680;
+
 const PLATFORM_LABELS: Record<VideoEditorPlatform, string> = {
   instagram: 'Instagram',
   tiktok: 'TikTok',
@@ -43,6 +63,8 @@ const PLATFORM_LABELS: Record<VideoEditorPlatform, string> = {
 const DEFAULT_TEXT_STYLE: VideoEditorTextStyle = {
   backgroundColor: '#111111',
   backgroundOpacity: 1,
+  fontFamily: 'Noto Sans KR',
+  fontMarket: 'KR',
   fontSizePercent: 3,
   fontWeight: 700,
   textAlign: 'center',
@@ -56,14 +78,18 @@ function createDefaultPreset(): VideoEditorPresetInput {
     letterboxColor: '#000000',
     name: '새 편집 설정',
     platform: 'instagram',
-    resizeMode: 'crop',
+    resizeMode: 'letterbox',
   };
 }
 
 function copyPreset(preset: VideoEditorPresetInput): VideoEditorPresetInput {
   return {
-    ...preset,
+    aspectRatio: preset.aspectRatio,
     defaultTextStyle: { ...preset.defaultTextStyle },
+    letterboxColor: preset.letterboxColor,
+    name: preset.name,
+    platform: preset.platform,
+    resizeMode: preset.resizeMode,
   };
 }
 
@@ -76,6 +102,10 @@ function hexToRgba(color: string, opacity: number): string {
   const green = Number.parseInt(color.slice(3, 5), 16);
   const blue = Number.parseInt(color.slice(5, 7), 16);
   return `rgba(${red}, ${green}, ${blue}, ${opacity})`;
+}
+
+function formatFontFamily(fontFamily: string): string {
+  return `"${fontFamily}", sans-serif`;
 }
 
 function formatMediaTime(seconds: number): string {
@@ -124,6 +154,14 @@ async function createOverlayImageDataUrl(
     return null;
   }
 
+  const fontDescriptors = new Set(
+    overlays.map(
+      (overlay) => `${overlay.style.fontWeight} 16px ${formatFontFamily(overlay.style.fontFamily)}`,
+    ),
+  );
+  await Promise.all(
+    Array.from(fontDescriptors, (fontDescriptor) => document.fonts.load(fontDescriptor)),
+  );
   await document.fonts.ready;
   const { width, height } = VIDEO_EDITOR_OUTPUT_SIZES[aspectRatio];
   const canvas = document.createElement('canvas');
@@ -156,7 +194,7 @@ async function createOverlayImageDataUrl(
     let lines: string[] = [];
     let lineHeight = 0;
     while (fontSize >= 12) {
-      context.font = `${overlay.style.fontWeight} ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+      context.font = `${overlay.style.fontWeight} ${fontSize}px ${formatFontFamily(overlay.style.fontFamily)}`;
       lines = splitTextLines(context, overlay.text, maximumTextWidth);
       lineHeight = Math.round(fontSize * 1.2);
       if (lines.length * lineHeight <= maximumTextHeight) {
@@ -195,9 +233,24 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
   const [presetBusy, setPresetBusy] = useState(false);
   const [presetMessage, setPresetMessage] = useState<string | null>(null);
   const [presetError, setPresetError] = useState<string | null>(null);
+  const [presetDialogMode, setPresetDialogMode] = useState<PresetDialogMode | null>(null);
+  const [presetNameInput, setPresetNameInput] = useState('');
+  const [platformSaving, setPlatformSaving] = useState(false);
+  const [platformMessage, setPlatformMessage] = useState<string | null>(null);
+  const [platformError, setPlatformError] = useState<string | null>(null);
+  const [textPresets, setTextPresets] = useState<VideoEditorTextPreset[]>([]);
+  const [selectedTextPresetId, setSelectedTextPresetId] = useState<number | null>(null);
+  const [textPresetsLoading, setTextPresetsLoading] = useState(true);
+  const [textPresetBusy, setTextPresetBusy] = useState(false);
+  const [textPresetMessage, setTextPresetMessage] = useState<string | null>(null);
+  const [textPresetError, setTextPresetError] = useState<string | null>(null);
+  const [textPresetDialogMode, setTextPresetDialogMode] = useState<TextPresetDialogMode | null>(
+    null,
+  );
+  const [textPresetNameInput, setTextPresetNameInput] = useState('');
   const [overlays, setOverlays] = useState<VideoEditorTextOverlay[]>([]);
   const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(null);
-  const [previewHeight, setPreviewHeight] = useState(0);
+  const [previewAreaSize, setPreviewAreaSize] = useState({ height: 0, width: 0 });
   const [videoCurrentTime, setVideoCurrentTime] = useState(0);
   const [videoDuration, setVideoDuration] = useState(0);
   const [videoMuted, setVideoMuted] = useState(false);
@@ -206,6 +259,7 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
   const [renderProgress, setRenderProgress] = useState<VideoRenderProgress | null>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
   const playerRef = useRef<HTMLDivElement | null>(null);
+  const previewAreaRef = useRef<HTMLDivElement | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
@@ -215,11 +269,33 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
     () => overlays.find((overlay) => overlay.id === selectedOverlayId) ?? null,
     [overlays, selectedOverlayId],
   );
+  const selectedPreset = useMemo(
+    () => presets.find((preset) => preset.id === selectedPresetId) ?? null,
+    [presets, selectedPresetId],
+  );
+  const selectedTextPreset = useMemo(
+    () => textPresets.find((preset) => preset.id === selectedTextPresetId) ?? null,
+    [selectedTextPresetId, textPresets],
+  );
   const supportedRatios = VIDEO_EDITOR_PLATFORM_RATIOS[
     presetDraft.platform
   ] as readonly VideoEditorAspectRatio[];
   const outputSize = VIDEO_EDITOR_OUTPUT_SIZES[presetDraft.aspectRatio];
+  const previewStageSize = useMemo(
+    () =>
+      fitPreviewStage({
+        aspectHeight: outputSize.height,
+        aspectWidth: outputSize.width,
+        availableHeight: previewAreaSize.height,
+        availableWidth: previewAreaSize.width,
+        controlsHeight: video.playbackUrl ? MEDIA_CONTROLS_HEIGHT : 0,
+        maxStageHeight: MAX_PREVIEW_STAGE_HEIGHT,
+      }),
+    [outputSize.height, outputSize.width, previewAreaSize, video.playbackUrl],
+  );
+  const previewHeight = previewStageSize?.height ?? 0;
   const rendering = renderStarting || renderProgress?.status === 'running';
+  const showRenderStatus = rendering || renderProgress !== null || renderError !== null;
 
   useEffect(() => {
     let active = true;
@@ -252,15 +328,104 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
   }, []);
 
   useEffect(() => {
-    const preview = previewRef.current;
-    if (!preview) {
+    let active = true;
+    void window.localVideoManager
+      .getVideoEditorTextPresets()
+      .then((loadedPresets) => {
+        if (active) {
+          setTextPresets(loadedPresets);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setTextPresetError('텍스트 프리셋을 불러오지 못했습니다.');
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setTextPresetsLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!presetDialogMode) {
       return;
     }
 
-    const observer = new ResizeObserver(([entry]) => setPreviewHeight(entry.contentRect.height));
-    observer.observe(preview);
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape' && !presetBusy) {
+        setPresetDialogMode(null);
+        setPresetError(null);
+      }
+    }
+
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [presetBusy, presetDialogMode]);
+
+  useEffect(() => {
+    if (!presetMessage) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => setPresetMessage(null), 5_000);
+    return () => window.clearTimeout(timeoutId);
+  }, [presetMessage]);
+
+  useEffect(() => {
+    if (!platformMessage) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => setPlatformMessage(null), 5_000);
+    return () => window.clearTimeout(timeoutId);
+  }, [platformMessage]);
+
+  useEffect(() => {
+    if (!textPresetDialogMode) {
+      return;
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape' && !textPresetBusy) {
+        setTextPresetDialogMode(null);
+        setTextPresetError(null);
+      }
+    }
+
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [textPresetBusy, textPresetDialogMode]);
+
+  useEffect(() => {
+    if (!textPresetMessage) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => setTextPresetMessage(null), 5_000);
+    return () => window.clearTimeout(timeoutId);
+  }, [textPresetMessage]);
+
+  useEffect(() => {
+    const previewArea = previewAreaRef.current;
+    if (!previewArea) {
+      return;
+    }
+
+    const observer = new ResizeObserver(([entry]) => {
+      setPreviewAreaSize({
+        height: entry.contentRect.height,
+        width: entry.contentRect.width,
+      });
+    });
+    observer.observe(previewArea);
     return () => observer.disconnect();
-  }, [presetDraft.aspectRatio]);
+  }, []);
 
   useEffect(
     () =>
@@ -285,6 +450,8 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
   function selectPreset(presetIdValue: string) {
     setPresetError(null);
     setPresetMessage(null);
+    setPlatformError(null);
+    setPlatformMessage(null);
     if (!presetIdValue) {
       setSelectedPresetId(null);
       setPresetDraft(createDefaultPreset());
@@ -298,16 +465,42 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
     }
   }
 
-  function startNewPreset() {
-    setSelectedPresetId(null);
-    setPresetDraft((current) => ({ ...copyPreset(current), name: '새 편집 설정' }));
+  function openCreatePresetDialog() {
+    setPresetNameInput('');
+    setPresetDialogMode('create');
     setPresetMessage(null);
     setPresetError(null);
   }
 
-  async function savePreset() {
-    if (!presetDraft.name.trim()) {
+  function openEditPresetDialog() {
+    if (!selectedPresetId) {
+      return;
+    }
+
+    setPresetNameInput(presetDraft.name);
+    setPresetDialogMode('edit');
+    setPresetMessage(null);
+    setPresetError(null);
+  }
+
+  function closePresetDialog() {
+    if (presetBusy) {
+      return;
+    }
+
+    setPresetDialogMode(null);
+    setPresetError(null);
+  }
+
+  async function submitPresetDialog(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const name = presetNameInput.trim();
+    if (!name) {
       setPresetError('설정 이름을 입력하세요.');
+      return;
+    }
+
+    if (!presetDialogMode || (presetDialogMode === 'edit' && !selectedPreset)) {
       return;
     }
 
@@ -315,18 +508,26 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
     setPresetError(null);
     setPresetMessage(null);
     try {
-      const saved = selectedPresetId
-        ? await window.localVideoManager.updateVideoEditorPreset(selectedPresetId, presetDraft)
-        : await window.localVideoManager.createVideoEditorPreset(presetDraft);
+      const input = {
+        ...copyPreset(presetDialogMode === 'edit' ? selectedPreset! : presetDraft),
+        name,
+      };
+      const saved =
+        presetDialogMode === 'edit'
+          ? await window.localVideoManager.updateVideoEditorPreset(selectedPreset!.id, input)
+          : await window.localVideoManager.createVideoEditorPreset(input);
       const nextPresets = await window.localVideoManager.getVideoEditorPresets();
       setPresets(nextPresets);
       setSelectedPresetId(saved.id);
-      setPresetDraft(copyPreset(saved));
-      setPresetMessage(
-        selectedPresetId ? '편집 설정을 변경했습니다.' : '새 편집 설정을 저장했습니다.',
+      setPresetDraft((current) =>
+        presetDialogMode === 'edit' ? { ...current, name: saved.name } : copyPreset(saved),
       );
+      setPresetMessage(
+        presetDialogMode === 'edit' ? '편집 설정을 변경했습니다.' : '편집 설정을 등록했습니다.',
+      );
+      setPresetDialogMode(null);
     } catch {
-      setPresetError('같은 이름의 설정이 있는지 확인한 뒤 다시 저장하세요.');
+      setPresetError('같은 이름의 설정이 있는지 확인한 뒤 다시 시도하세요.');
     } finally {
       setPresetBusy(false);
     }
@@ -361,11 +562,221 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
 
   function changePlatform(platform: VideoEditorPlatform) {
     const ratios = VIDEO_EDITOR_PLATFORM_RATIOS[platform] as readonly VideoEditorAspectRatio[];
+    setPlatformMessage(null);
+    setPlatformError(null);
     setPresetDraft((current) => ({
       ...current,
       aspectRatio: ratios.includes(current.aspectRatio) ? current.aspectRatio : ratios[0],
       platform,
     }));
+  }
+
+  function updatePlatformDraft(update: Partial<PlatformSettings>) {
+    setPlatformMessage(null);
+    setPlatformError(null);
+    setPresetDraft((current) => ({ ...current, ...update }));
+  }
+
+  async function savePlatformSettings() {
+    if (!selectedPreset) {
+      setPlatformError('편집 설정을 먼저 등록하세요.');
+      return;
+    }
+
+    setPlatformSaving(true);
+    setPlatformMessage(null);
+    setPlatformError(null);
+    try {
+      const saved = await window.localVideoManager.updateVideoEditorPreset(selectedPreset.id, {
+        aspectRatio: presetDraft.aspectRatio,
+        defaultTextStyle: { ...selectedPreset.defaultTextStyle },
+        letterboxColor: presetDraft.letterboxColor,
+        name: selectedPreset.name,
+        platform: presetDraft.platform,
+        resizeMode: presetDraft.resizeMode,
+      });
+      const nextPresets = await window.localVideoManager.getVideoEditorPresets();
+      setPresets(nextPresets);
+      setPresetDraft((current) => ({
+        ...current,
+        aspectRatio: saved.aspectRatio,
+        letterboxColor: saved.letterboxColor,
+        name: saved.name,
+        platform: saved.platform,
+        resizeMode: saved.resizeMode,
+      }));
+      setPlatformMessage('플랫폼 설정을 저장했습니다.');
+    } catch {
+      setPlatformError('플랫폼 설정을 저장하지 못했습니다.');
+    } finally {
+      setPlatformSaving(false);
+    }
+  }
+
+  function applyTextPreset(presetIdValue: string) {
+    setTextPresetMessage(null);
+    setTextPresetError(null);
+    if (!presetIdValue) {
+      setSelectedTextPresetId(null);
+      return;
+    }
+
+    const preset = textPresets.find((candidate) => candidate.id === Number(presetIdValue));
+    if (!preset) {
+      return;
+    }
+
+    const nextOverlays = preset.overlays.map((overlay, index) => ({
+      id: crypto.randomUUID(),
+      region: { ...overlay.region },
+      style: { ...overlay.style },
+      text: overlays[index]?.text ?? '',
+    }));
+    setSelectedTextPresetId(preset.id);
+    setOverlays(nextOverlays);
+    setSelectedOverlayId(nextOverlays[0]?.id ?? null);
+  }
+
+  function buildTextPresetInput(name: string) {
+    return {
+      name,
+      overlays: overlays.map((overlay) => ({
+        region: { ...overlay.region },
+        style: { ...overlay.style },
+      })),
+    };
+  }
+
+  function openTextPresetDialog() {
+    setTextPresetMessage(null);
+    setTextPresetError(null);
+    if (overlays.length === 0) {
+      setTextPresetError('저장할 텍스트 영역을 먼저 추가하세요.');
+      return;
+    }
+
+    if (selectedTextPreset) {
+      setTextPresetDialogMode('choice');
+      return;
+    }
+
+    openNewTextPresetDialog();
+  }
+
+  function openNewTextPresetDialog() {
+    if (textPresets.length >= VIDEO_EDITOR_TEXT_PRESET_LIMIT) {
+      setTextPresetError('텍스트 프리셋은 최대 5개까지 저장할 수 있습니다.');
+      return;
+    }
+
+    setTextPresetError(null);
+    setTextPresetNameInput('');
+    setTextPresetDialogMode('create');
+  }
+
+  function openRenameTextPresetDialog() {
+    if (!selectedTextPreset) {
+      return;
+    }
+
+    setTextPresetError(null);
+    setTextPresetNameInput(selectedTextPreset.name);
+    setTextPresetDialogMode('rename');
+  }
+
+  function closeTextPresetDialog() {
+    if (textPresetBusy) {
+      return;
+    }
+
+    setTextPresetDialogMode(null);
+    setTextPresetError(null);
+  }
+
+  async function submitTextPresetDialog(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const name = textPresetNameInput.trim();
+    if (!name) {
+      setTextPresetError('프리셋 이름을 입력하세요.');
+      return;
+    }
+
+    const renaming = textPresetDialogMode === 'rename';
+    if (renaming && !selectedTextPreset) {
+      return;
+    }
+
+    setTextPresetBusy(true);
+    setTextPresetMessage(null);
+    setTextPresetError(null);
+    try {
+      const saved = renaming
+        ? await window.localVideoManager.updateVideoEditorTextPreset(selectedTextPreset!.id, {
+            name,
+            overlays: selectedTextPreset!.overlays.map((overlay) => ({
+              region: { ...overlay.region },
+              style: { ...overlay.style },
+            })),
+          })
+        : await window.localVideoManager.createVideoEditorTextPreset(buildTextPresetInput(name));
+      const nextPresets = await window.localVideoManager.getVideoEditorTextPresets();
+      setTextPresets(nextPresets);
+      setSelectedTextPresetId(saved.id);
+      setTextPresetDialogMode(null);
+      setTextPresetMessage(
+        renaming ? '텍스트 프리셋 이름을 변경했습니다.' : '텍스트 프리셋을 저장했습니다.',
+      );
+    } catch {
+      setTextPresetError('같은 이름의 프리셋이 있는지 확인한 뒤 다시 시도하세요.');
+    } finally {
+      setTextPresetBusy(false);
+    }
+  }
+
+  async function updateSelectedTextPreset() {
+    if (!selectedTextPreset) {
+      return;
+    }
+
+    setTextPresetBusy(true);
+    setTextPresetMessage(null);
+    setTextPresetError(null);
+    try {
+      const saved = await window.localVideoManager.updateVideoEditorTextPreset(
+        selectedTextPreset.id,
+        buildTextPresetInput(selectedTextPreset.name),
+      );
+      const nextPresets = await window.localVideoManager.getVideoEditorTextPresets();
+      setTextPresets(nextPresets);
+      setSelectedTextPresetId(saved.id);
+      setTextPresetDialogMode(null);
+      setTextPresetMessage('텍스트 프리셋을 업데이트했습니다.');
+    } catch {
+      setTextPresetError('텍스트 프리셋을 업데이트하지 못했습니다.');
+    } finally {
+      setTextPresetBusy(false);
+    }
+  }
+
+  async function deleteTextPreset() {
+    if (!selectedTextPresetId || !window.confirm('이 텍스트 프리셋을 삭제하시겠습니까?')) {
+      return;
+    }
+
+    setTextPresetBusy(true);
+    setTextPresetMessage(null);
+    setTextPresetError(null);
+    try {
+      await window.localVideoManager.deleteVideoEditorTextPreset(selectedTextPresetId);
+      const nextPresets = await window.localVideoManager.getVideoEditorTextPresets();
+      setTextPresets(nextPresets);
+      setSelectedTextPresetId(null);
+      setTextPresetMessage('텍스트 프리셋을 삭제했습니다.');
+    } catch {
+      setTextPresetError('텍스트 프리셋을 삭제하지 못했습니다.');
+    } finally {
+      setTextPresetBusy(false);
+    }
   }
 
   function addOverlay() {
@@ -405,11 +816,23 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
     }));
   }
 
+  function updateSelectedFontMarket(fontMarket: VideoEditorFontMarket) {
+    const currentFontFamily = selectedOverlay?.style.fontFamily ?? '';
+    updateSelectedStyle({
+      fontFamily: isVideoEditorFontFamily(fontMarket, currentFontFamily)
+        ? currentFontFamily
+        : getDefaultVideoEditorFontFamily(fontMarket),
+      fontMarket,
+    });
+  }
+
   function deleteOverlay(overlayId: string) {
+    const nextSelectedOverlayId = getOverlaySelectionAfterDelete(
+      overlays.map((overlay) => overlay.id),
+      overlayId,
+    );
     setOverlays((current) => current.filter((overlay) => overlay.id !== overlayId));
-    if (selectedOverlayId === overlayId) {
-      setSelectedOverlayId(null);
-    }
+    setSelectedOverlayId(nextSelectedOverlayId);
   }
 
   function reorderOverlay(overlayId: string, direction: -1 | 1) {
@@ -601,6 +1024,26 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
 
   return (
     <main className="video-editor-shell">
+      {presetMessage || platformMessage || textPresetMessage ? (
+        <div className="video-editor-toast-region" aria-live="polite" aria-atomic="true">
+          {presetMessage ? (
+            <div className="video-editor-toast" role="status">
+              {presetMessage}
+            </div>
+          ) : null}
+          {platformMessage ? (
+            <div className="video-editor-toast" role="status">
+              {platformMessage}
+            </div>
+          ) : null}
+          {textPresetMessage ? (
+            <div className="video-editor-toast" role="status">
+              {textPresetMessage}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       <header className="video-editor-topbar">
         <button
           className="video-editor-back-button"
@@ -619,7 +1062,7 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
           className="primary-button video-editor-render-button"
           type="button"
           onClick={() => void startRender()}
-          disabled={rendering || presetsLoading || !video.fileAvailable}
+          disabled={rendering || platformSaving || presetsLoading || !video.fileAvailable}
         >
           {rendering ? '영상 만드는 중…' : '편집 영상 만들기'}
         </button>
@@ -633,56 +1076,72 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
                 <span>PRESET</span>
                 <h2>편집 설정</h2>
               </div>
-              <button type="button" onClick={startNewPreset} disabled={presetBusy || rendering}>
-                새 설정
+              <button
+                className="video-editor-preset-register"
+                type="button"
+                onClick={openCreatePresetDialog}
+                disabled={presetBusy || platformSaving || rendering}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 8v8M8 12h8" />
+                </svg>
+                등록
               </button>
             </div>
-            <label className="video-editor-field">
-              <span>저장된 설정</span>
+            <div className="video-editor-preset-row">
               <select
+                aria-label="편집 설정"
                 value={selectedPresetId ?? ''}
                 onChange={(event) => selectPreset(event.target.value)}
-                disabled={presetsLoading || presetBusy || rendering}
+                disabled={
+                  presetsLoading ||
+                  presets.length === 0 ||
+                  presetBusy ||
+                  platformSaving ||
+                  rendering
+                }
               >
-                <option value="">저장하지 않은 설정</option>
+                <option value="">
+                  {presetsLoading
+                    ? '설정 불러오는 중'
+                    : presets.length === 0
+                      ? '설정 없음'
+                      : '설정 선택'}
+                </option>
                 {presets.map((preset) => (
                   <option key={preset.id} value={preset.id}>
                     {preset.name}
                   </option>
                 ))}
               </select>
-            </label>
-            <label className="video-editor-field">
-              <span>설정 이름</span>
-              <input
-                value={presetDraft.name}
-                onChange={(event) =>
-                  setPresetDraft((current) => ({ ...current, name: event.target.value }))
-                }
-                maxLength={VIDEO_EDITOR_PRESET_NAME_MAX_LENGTH}
-                disabled={presetBusy || rendering}
-              />
-            </label>
-            <div className="video-editor-preset-actions">
               <button
-                className="video-editor-secondary-button"
+                className="video-editor-preset-icon-button"
+                type="button"
+                onClick={openEditPresetDialog}
+                disabled={!selectedPresetId || presetBusy || platformSaving || rendering}
+                aria-label="편집 설정 수정"
+                title="설정 수정"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="m4 20 4.1-1 10.5-10.5a2.1 2.1 0 0 0-3-3L5.1 16 4 20Z" />
+                  <path d="m13.8 7.7 2.5 2.5" />
+                </svg>
+              </button>
+              <button
+                className="video-editor-preset-icon-button danger"
                 type="button"
                 onClick={() => void deletePreset()}
-                disabled={!selectedPresetId || presetBusy || rendering}
+                disabled={!selectedPresetId || presetBusy || platformSaving || rendering}
+                aria-label="편집 설정 삭제"
+                title="설정 삭제"
               >
-                삭제
-              </button>
-              <button
-                className="video-editor-save-button"
-                type="button"
-                onClick={() => void savePreset()}
-                disabled={presetBusy || rendering}
-              >
-                {presetBusy ? '저장 중…' : selectedPresetId ? '변경 저장' : '새로 저장'}
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5" />
+                </svg>
               </button>
             </div>
-            {presetMessage ? <p className="video-editor-success">{presetMessage}</p> : null}
-            {presetError ? (
+            {presetError && !presetDialogMode ? (
               <p className="video-editor-error" role="alert">
                 {presetError}
               </p>
@@ -695,9 +1154,19 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
                 <span>OUTPUT</span>
                 <h2>플랫폼 설정</h2>
               </div>
-              <small>
-                {outputSize.width} × {outputSize.height}
-              </small>
+              <button
+                className="video-editor-panel-icon-button"
+                type="button"
+                onClick={() => void savePlatformSettings()}
+                disabled={!selectedPreset || platformSaving || rendering}
+                aria-label="플랫폼 설정 저장"
+                title={selectedPreset ? '플랫폼 설정 저장' : '편집 설정을 먼저 등록하세요'}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M5 4h12l2 2v14H5V4Z" />
+                  <path d="M8 4v6h8V4M8 20v-6h8v6" />
+                </svg>
+              </button>
             </div>
             <div className="video-editor-field-row">
               <label className="video-editor-field">
@@ -705,7 +1174,7 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
                 <select
                   value={presetDraft.platform}
                   onChange={(event) => changePlatform(event.target.value as VideoEditorPlatform)}
-                  disabled={rendering}
+                  disabled={platformSaving || rendering}
                 >
                   {Object.entries(PLATFORM_LABELS).map(([value, label]) => (
                     <option key={value} value={value}>
@@ -719,12 +1188,11 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
                 <select
                   value={presetDraft.aspectRatio}
                   onChange={(event) =>
-                    setPresetDraft((current) => ({
-                      ...current,
+                    updatePlatformDraft({
                       aspectRatio: event.target.value as VideoEditorAspectRatio,
-                    }))
+                    })
                   }
-                  disabled={rendering}
+                  disabled={platformSaving || rendering}
                 >
                   {supportedRatios.map((ratio) => (
                     <option key={ratio} value={ratio}>
@@ -734,47 +1202,95 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
                 </select>
               </label>
             </div>
-            <fieldset className="video-editor-segmented-field" disabled={rendering}>
-              <legend>영상 맞춤</legend>
-              <label>
-                <input
-                  type="radio"
-                  name="resize-mode"
-                  value="crop"
-                  checked={presetDraft.resizeMode === 'crop'}
-                  onChange={() => setPresetDraft((current) => ({ ...current, resizeMode: 'crop' }))}
-                />
-                <span>화면 채우기</span>
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  name="resize-mode"
-                  value="letterbox"
-                  checked={presetDraft.resizeMode === 'letterbox'}
-                  onChange={() =>
-                    setPresetDraft((current) => ({ ...current, resizeMode: 'letterbox' }))
+            <div
+              className="video-editor-radio-field"
+              role="group"
+              aria-labelledby="video-editor-resize-mode-label"
+            >
+              <span id="video-editor-resize-mode-label">리사이징 모드</span>
+              <div>
+                <label>
+                  <input
+                    type="radio"
+                    name="resize-mode"
+                    value="letterbox"
+                    checked={presetDraft.resizeMode === 'letterbox'}
+                    onChange={() => updatePlatformDraft({ resizeMode: 'letterbox' })}
+                    disabled={platformSaving || rendering}
+                  />
+                  <span>레터박스</span>
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="resize-mode"
+                    value="crop"
+                    checked={presetDraft.resizeMode === 'crop'}
+                    onChange={() => updatePlatformDraft({ resizeMode: 'crop' })}
+                    disabled={platformSaving || rendering}
+                  />
+                  <span>크롭</span>
+                </label>
+              </div>
+            </div>
+            <fieldset
+              className="video-editor-letterbox-field"
+              disabled={platformSaving || rendering || presetDraft.resizeMode === 'crop'}
+            >
+              <legend>레터박스 배경색</legend>
+              <div>
+                <button
+                  className={
+                    presetDraft.letterboxColor === '#000000'
+                      ? 'video-editor-color-choice selected'
+                      : 'video-editor-color-choice'
                   }
-                />
-                <span>전체 보이기</span>
-              </label>
+                  type="button"
+                  onClick={() => updatePlatformDraft({ letterboxColor: '#000000' })}
+                  aria-pressed={presetDraft.letterboxColor === '#000000'}
+                >
+                  <span className="video-editor-color-swatch black" />
+                  검정
+                </button>
+                <button
+                  className={
+                    presetDraft.letterboxColor === '#FFFFFF'
+                      ? 'video-editor-color-choice selected'
+                      : 'video-editor-color-choice'
+                  }
+                  type="button"
+                  onClick={() => updatePlatformDraft({ letterboxColor: '#FFFFFF' })}
+                  aria-pressed={presetDraft.letterboxColor === '#FFFFFF'}
+                >
+                  <span className="video-editor-color-swatch white" />
+                  흰색
+                </button>
+                <label
+                  className={
+                    presetDraft.letterboxColor !== '#000000' &&
+                    presetDraft.letterboxColor !== '#FFFFFF'
+                      ? 'video-editor-custom-color selected'
+                      : 'video-editor-custom-color'
+                  }
+                >
+                  <input
+                    type="color"
+                    value={presetDraft.letterboxColor}
+                    onChange={(event) =>
+                      updatePlatformDraft({
+                        letterboxColor: event.target.value.toUpperCase(),
+                      })
+                    }
+                    aria-label="사용자 지정 레터박스 배경색"
+                  />
+                  <span>직접 선택</span>
+                </label>
+              </div>
             </fieldset>
-            {presetDraft.resizeMode === 'letterbox' ? (
-              <label className="video-editor-color-field">
-                <span>여백 색상</span>
-                <input
-                  type="color"
-                  value={presetDraft.letterboxColor}
-                  onChange={(event) =>
-                    setPresetDraft((current) => ({
-                      ...current,
-                      letterboxColor: event.target.value.toUpperCase(),
-                    }))
-                  }
-                  disabled={rendering}
-                />
-                <code>{presetDraft.letterboxColor}</code>
-              </label>
+            {platformError ? (
+              <p className="video-editor-error" role="alert">
+                {platformError}
+              </p>
             ) : null}
           </section>
 
@@ -782,14 +1298,98 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
             <div className="video-editor-panel-heading">
               <div>
                 <span>TEXT REPLACEMENT</span>
-                <h2>텍스트 교체 영역</h2>
+                <h2>텍스트 교체</h2>
               </div>
-              <button type="button" onClick={addOverlay} disabled={rendering}>
-                + 영역 추가
+              <div className="video-editor-panel-actions">
+                <button type="button" onClick={addOverlay} disabled={rendering || textPresetBusy}>
+                  + 추가
+                </button>
+                <button
+                  className="video-editor-panel-icon-button"
+                  type="button"
+                  onClick={openTextPresetDialog}
+                  disabled={
+                    overlays.length === 0 ||
+                    (!selectedTextPreset && textPresets.length >= VIDEO_EDITOR_TEXT_PRESET_LIMIT) ||
+                    textPresetBusy ||
+                    rendering
+                  }
+                  aria-label={selectedTextPreset ? '텍스트 프리셋 저장 옵션' : '텍스트 프리셋 저장'}
+                  title={
+                    selectedTextPreset
+                      ? '현재 프리셋 업데이트 또는 새 프리셋 저장'
+                      : textPresets.length >= VIDEO_EDITOR_TEXT_PRESET_LIMIT
+                        ? '텍스트 프리셋은 최대 5개까지 저장할 수 있습니다'
+                        : '텍스트 프리셋 저장'
+                  }
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M5 4h12l2 2v14H5V4Z" />
+                    <path d="M8 4v6h8V4M8 20v-6h8v6" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div className="video-editor-text-preset-row">
+              <select
+                aria-label="텍스트 프리셋"
+                value={selectedTextPresetId ?? ''}
+                onChange={(event) => applyTextPreset(event.target.value)}
+                disabled={
+                  textPresetsLoading || textPresets.length === 0 || textPresetBusy || rendering
+                }
+              >
+                <option value="">
+                  {textPresetsLoading
+                    ? '프리셋 불러오는 중'
+                    : textPresets.length === 0
+                      ? '프리셋 없음'
+                      : '프리셋 선택'}
+                </option>
+                {textPresets.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="video-editor-preset-icon-button"
+                type="button"
+                onClick={openRenameTextPresetDialog}
+                disabled={!selectedTextPresetId || textPresetBusy || rendering}
+                aria-label="텍스트 프리셋 이름 수정"
+                title="텍스트 프리셋 이름 수정"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="m4 20 4.1-1 10.5-10.5a2.1 2.1 0 0 0-3-3L5.1 16 4 20Z" />
+                  <path d="m13.8 7.7 2.5 2.5" />
+                </svg>
+              </button>
+              <button
+                className="video-editor-preset-icon-button danger"
+                type="button"
+                onClick={() => void deleteTextPreset()}
+                disabled={!selectedTextPresetId || textPresetBusy || rendering}
+                aria-label="텍스트 프리셋 삭제"
+                title="텍스트 프리셋 삭제"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5" />
+                </svg>
               </button>
             </div>
+            {textPresetError && !textPresetDialogMode ? (
+              <p className="video-editor-error" role="alert">
+                {textPresetError}
+              </p>
+            ) : null}
             {overlays.length === 0 ? (
-              <button className="video-editor-empty-regions" type="button" onClick={addOverlay}>
+              <button
+                className="video-editor-empty-regions"
+                type="button"
+                onClick={addOverlay}
+                disabled={rendering || textPresetBusy}
+              >
                 영상 위에서 교체할 텍스트 영역을 추가하세요.
               </button>
             ) : (
@@ -854,28 +1454,155 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
                     disabled={rendering}
                   />
                 </label>
-                <div className="video-editor-color-row">
-                  <label className="video-editor-color-field">
-                    <span>글자</span>
-                    <input
-                      type="color"
-                      value={selectedOverlay.style.textColor}
+                <fieldset className="video-editor-letterbox-field" disabled={rendering}>
+                  <legend>배경</legend>
+                  <div>
+                    <button
+                      className={
+                        selectedOverlay.style.backgroundColor === '#111111' ||
+                        selectedOverlay.style.backgroundColor === '#000000'
+                          ? 'video-editor-color-choice selected'
+                          : 'video-editor-color-choice'
+                      }
+                      type="button"
+                      onClick={() => updateSelectedStyle({ backgroundColor: '#111111' })}
+                      aria-pressed={
+                        selectedOverlay.style.backgroundColor === '#111111' ||
+                        selectedOverlay.style.backgroundColor === '#000000'
+                      }
+                    >
+                      <span className="video-editor-color-swatch black" />
+                      검정
+                    </button>
+                    <button
+                      className={
+                        selectedOverlay.style.backgroundColor === '#FFFFFF'
+                          ? 'video-editor-color-choice selected'
+                          : 'video-editor-color-choice'
+                      }
+                      type="button"
+                      onClick={() => updateSelectedStyle({ backgroundColor: '#FFFFFF' })}
+                      aria-pressed={selectedOverlay.style.backgroundColor === '#FFFFFF'}
+                    >
+                      <span className="video-editor-color-swatch white" />
+                      흰색
+                    </button>
+                    <label
+                      className={
+                        selectedOverlay.style.backgroundColor !== '#111111' &&
+                        selectedOverlay.style.backgroundColor !== '#000000' &&
+                        selectedOverlay.style.backgroundColor !== '#FFFFFF'
+                          ? 'video-editor-custom-color selected'
+                          : 'video-editor-custom-color'
+                      }
+                    >
+                      <input
+                        type="color"
+                        value={selectedOverlay.style.backgroundColor}
+                        onChange={(event) =>
+                          updateSelectedStyle({
+                            backgroundColor: event.target.value.toUpperCase(),
+                          })
+                        }
+                        aria-label="사용자 지정 텍스트 배경색"
+                      />
+                      <span>직접 선택</span>
+                    </label>
+                  </div>
+                </fieldset>
+                <fieldset className="video-editor-letterbox-field" disabled={rendering}>
+                  <legend>글자</legend>
+                  <div>
+                    <button
+                      className={
+                        selectedOverlay.style.textColor === '#000000' ||
+                        selectedOverlay.style.textColor === '#111111'
+                          ? 'video-editor-color-choice selected'
+                          : 'video-editor-color-choice'
+                      }
+                      type="button"
+                      onClick={() => updateSelectedStyle({ textColor: '#000000' })}
+                      aria-pressed={
+                        selectedOverlay.style.textColor === '#000000' ||
+                        selectedOverlay.style.textColor === '#111111'
+                      }
+                    >
+                      <span className="video-editor-color-swatch black" />
+                      검정
+                    </button>
+                    <button
+                      className={
+                        selectedOverlay.style.textColor === '#FFFFFF'
+                          ? 'video-editor-color-choice selected'
+                          : 'video-editor-color-choice'
+                      }
+                      type="button"
+                      onClick={() => updateSelectedStyle({ textColor: '#FFFFFF' })}
+                      aria-pressed={selectedOverlay.style.textColor === '#FFFFFF'}
+                    >
+                      <span className="video-editor-color-swatch white" />
+                      흰색
+                    </button>
+                    <label
+                      className={
+                        selectedOverlay.style.textColor !== '#000000' &&
+                        selectedOverlay.style.textColor !== '#111111' &&
+                        selectedOverlay.style.textColor !== '#FFFFFF'
+                          ? 'video-editor-custom-color selected'
+                          : 'video-editor-custom-color'
+                      }
+                    >
+                      <input
+                        type="color"
+                        value={selectedOverlay.style.textColor}
+                        onChange={(event) =>
+                          updateSelectedStyle({ textColor: event.target.value.toUpperCase() })
+                        }
+                        aria-label="사용자 지정 글자색"
+                      />
+                      <span>직접 선택</span>
+                    </label>
+                  </div>
+                </fieldset>
+                <div className="video-editor-field-row video-editor-font-row">
+                  <label className="video-editor-field">
+                    <span>권역</span>
+                    <select
+                      value={selectedOverlay.style.fontMarket}
                       onChange={(event) =>
-                        updateSelectedStyle({ textColor: event.target.value.toUpperCase() })
+                        updateSelectedFontMarket(event.target.value as VideoEditorFontMarket)
                       }
                       disabled={rendering}
-                    />
+                    >
+                      {(
+                        Object.keys(VIDEO_EDITOR_FONT_MARKET_LABELS) as VideoEditorFontMarket[]
+                      ).map((fontMarket) => (
+                        <option key={fontMarket} value={fontMarket}>
+                          {VIDEO_EDITOR_FONT_MARKET_LABELS[fontMarket]}
+                        </option>
+                      ))}
+                    </select>
                   </label>
-                  <label className="video-editor-color-field">
-                    <span>배경</span>
-                    <input
-                      type="color"
-                      value={selectedOverlay.style.backgroundColor}
-                      onChange={(event) =>
-                        updateSelectedStyle({ backgroundColor: event.target.value.toUpperCase() })
-                      }
+                  <label className="video-editor-field">
+                    <span>폰트</span>
+                    <select
+                      value={selectedOverlay.style.fontFamily}
+                      onChange={(event) => updateSelectedStyle({ fontFamily: event.target.value })}
                       disabled={rendering}
-                    />
+                      style={{ fontFamily: formatFontFamily(selectedOverlay.style.fontFamily) }}
+                    >
+                      {VIDEO_EDITOR_FONT_OPTIONS_BY_MARKET[selectedOverlay.style.fontMarket].map(
+                        (font) => (
+                          <option
+                            key={font.value}
+                            value={font.value}
+                            style={{ fontFamily: formatFontFamily(font.value) }}
+                          >
+                            {font.label}
+                          </option>
+                        ),
+                      )}
+                    </select>
                   </label>
                 </div>
                 <label className="video-editor-range-field">
@@ -958,14 +1685,20 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
             </div>
             <p>영역을 드래그해 이동하고 우측 아래 점으로 크기를 조절하세요.</p>
           </div>
-          <div className="video-editor-preview-area">
-            <div className="video-editor-player" ref={playerRef}>
+          <div className="video-editor-preview-area" ref={previewAreaRef}>
+            <div
+              className="video-editor-player"
+              ref={playerRef}
+              style={previewStageSize ? { width: previewStageSize.width } : undefined}
+            >
               <div
                 className="video-editor-stage"
                 ref={previewRef}
                 style={{
                   aspectRatio: `${outputSize.width} / ${outputSize.height}`,
                   backgroundColor: presetDraft.letterboxColor,
+                  height: previewStageSize?.height,
+                  width: previewStageSize ? '100%' : undefined,
                 }}
                 onPointerDown={() => setSelectedOverlayId(null)}
               >
@@ -1015,6 +1748,7 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
                         overlay.style.backgroundOpacity,
                       ),
                       color: overlay.style.textColor,
+                      fontFamily: formatFontFamily(overlay.style.fontFamily),
                       fontSize: `${Math.max(9, (previewHeight * overlay.style.fontSizePercent) / 100)}px`,
                       fontWeight: overlay.style.fontWeight,
                       height: `${overlay.region.height * 100}%`,
@@ -1102,53 +1836,254 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
             </div>
           </div>
 
-          <section className="video-editor-render-status" aria-live="polite">
-            <div className="video-editor-render-copy">
-              <span>LOCAL RENDER</span>
-              <strong>
-                {renderProgress?.status === 'completed'
-                  ? '편집 영상을 만들었습니다.'
-                  : renderProgress?.status === 'cancelled'
-                    ? '영상 생성을 취소했습니다.'
-                    : renderProgress?.status === 'failed'
-                      ? '영상 생성에 실패했습니다.'
-                      : rendering
-                        ? `영상을 만드는 중입니다 · ${renderProgress?.progress ?? 0}%`
-                        : '원본 파일은 그대로 두고 새 MP4 파일을 만듭니다.'}
-              </strong>
-              {renderProgress?.outputPath ? (
-                <small title={renderProgress.outputPath}>{renderProgress.outputPath}</small>
+          {showRenderStatus ? (
+            <section className="video-editor-render-status" aria-live="polite">
+              <div className="video-editor-render-copy">
+                <span>LOCAL RENDER</span>
+                <strong>
+                  {renderProgress?.status === 'completed'
+                    ? '편집 영상을 만들었습니다.'
+                    : renderProgress?.status === 'cancelled'
+                      ? '영상 생성을 취소했습니다.'
+                      : renderProgress?.status === 'failed'
+                        ? '영상 생성에 실패했습니다.'
+                        : renderError
+                          ? '영상 생성에 실패했습니다.'
+                          : `영상을 만드는 중입니다 · ${renderProgress?.progress ?? 0}%`}
+                </strong>
+                {renderProgress?.outputPath ? (
+                  <small title={renderProgress.outputPath}>{renderProgress.outputPath}</small>
+                ) : null}
+                {renderError ? (
+                  <p className="video-editor-error" role="alert">
+                    {renderError}
+                  </p>
+                ) : null}
+              </div>
+              {rendering ? (
+                <button
+                  className="video-editor-secondary-button"
+                  type="button"
+                  onClick={() => void cancelRender()}
+                  disabled={renderStarting || !activeJobIdRef.current}
+                >
+                  생성 취소
+                </button>
+              ) : renderProgress?.status === 'completed' ? (
+                <button
+                  className="video-editor-save-button"
+                  type="button"
+                  onClick={() => void revealRenderedVideo()}
+                >
+                  파일 위치 열기
+                </button>
               ) : null}
-              {renderError ? (
-                <p className="video-editor-error" role="alert">
-                  {renderError}
-                </p>
-              ) : null}
-            </div>
-            {rendering ? (
-              <button
-                className="video-editor-secondary-button"
-                type="button"
-                onClick={() => void cancelRender()}
-                disabled={renderStarting || !activeJobIdRef.current}
-              >
-                생성 취소
-              </button>
-            ) : renderProgress?.status === 'completed' ? (
-              <button
-                className="video-editor-save-button"
-                type="button"
-                onClick={() => void revealRenderedVideo()}
-              >
-                파일 위치 열기
-              </button>
-            ) : null}
-            <div className="video-editor-progress-track" aria-hidden="true">
-              <span style={{ width: `${renderProgress?.progress ?? 0}%` }} />
-            </div>
-          </section>
+              <div className="video-editor-progress-track" aria-hidden="true">
+                <span style={{ width: `${renderProgress?.progress ?? 0}%` }} />
+              </div>
+            </section>
+          ) : null}
         </section>
       </div>
+
+      {presetDialogMode ? (
+        <div
+          className="video-editor-dialog-backdrop"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) {
+              closePresetDialog();
+            }
+          }}
+        >
+          <form
+            className="video-editor-preset-dialog"
+            onSubmit={(event) => void submitPresetDialog(event)}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="video-editor-preset-dialog-title"
+            aria-describedby="video-editor-preset-dialog-description"
+          >
+            <button
+              className="video-editor-dialog-close"
+              type="button"
+              onClick={closePresetDialog}
+              disabled={presetBusy}
+              aria-label="설정 창 닫기"
+            >
+              ×
+            </button>
+            <div className="video-editor-dialog-heading">
+              <span>PRESET</span>
+              <h2 id="video-editor-preset-dialog-title">
+                {presetDialogMode === 'create' ? '설정 추가' : '설정 수정'}
+              </h2>
+              <p id="video-editor-preset-dialog-description">
+                {presetDialogMode === 'create'
+                  ? '편집 설정 이름을 등록합니다.'
+                  : '편집 설정 이름을 수정합니다.'}
+              </p>
+            </div>
+            <label className="video-editor-dialog-field">
+              <span>설정 이름</span>
+              <input
+                autoFocus
+                value={presetNameInput}
+                onChange={(event) => setPresetNameInput(event.target.value)}
+                placeholder="설정 이름"
+                maxLength={VIDEO_EDITOR_PRESET_NAME_MAX_LENGTH}
+                disabled={presetBusy}
+              />
+            </label>
+            {presetError ? (
+              <p className="video-editor-error" role="alert">
+                {presetError}
+              </p>
+            ) : null}
+            <div className="video-editor-dialog-actions">
+              <button type="button" onClick={closePresetDialog} disabled={presetBusy}>
+                취소
+              </button>
+              <button className="primary" type="submit" disabled={presetBusy}>
+                {presetBusy ? '저장 중…' : presetDialogMode === 'create' ? '등록' : '저장'}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      {textPresetDialogMode ? (
+        <div
+          className="video-editor-dialog-backdrop"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) {
+              closeTextPresetDialog();
+            }
+          }}
+        >
+          {textPresetDialogMode === 'choice' ? (
+            <div
+              className="video-editor-preset-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="video-editor-text-preset-choice-dialog-title"
+              aria-describedby="video-editor-text-preset-choice-dialog-description"
+            >
+              <button
+                className="video-editor-dialog-close"
+                type="button"
+                onClick={closeTextPresetDialog}
+                disabled={textPresetBusy}
+                aria-label="텍스트 프리셋 저장 방식 창 닫기"
+              >
+                ×
+              </button>
+              <div className="video-editor-dialog-heading">
+                <span>TEXT PRESET</span>
+                <h2 id="video-editor-text-preset-choice-dialog-title">저장 방식 선택</h2>
+                <p id="video-editor-text-preset-choice-dialog-description">
+                  현재 “{selectedTextPreset?.name}” 프리셋을 업데이트하거나 새 프리셋으로
+                  저장합니다.
+                </p>
+              </div>
+              {textPresetError ? (
+                <p className="video-editor-error" role="alert">
+                  {textPresetError}
+                </p>
+              ) : null}
+              <div className="video-editor-dialog-actions video-editor-preset-choice-actions">
+                <button
+                  className="primary"
+                  type="button"
+                  onClick={() => void updateSelectedTextPreset()}
+                  disabled={textPresetBusy}
+                >
+                  {textPresetBusy ? '업데이트 중…' : '현재 프리셋 업데이트'}
+                </button>
+                <button
+                  type="button"
+                  onClick={openNewTextPresetDialog}
+                  disabled={textPresetBusy || textPresets.length >= VIDEO_EDITOR_TEXT_PRESET_LIMIT}
+                  title={
+                    textPresets.length >= VIDEO_EDITOR_TEXT_PRESET_LIMIT
+                      ? '텍스트 프리셋은 최대 5개까지 저장할 수 있습니다'
+                      : undefined
+                  }
+                >
+                  새 프리셋으로 저장
+                </button>
+                <button
+                  className="cancel"
+                  type="button"
+                  onClick={closeTextPresetDialog}
+                  disabled={textPresetBusy}
+                >
+                  취소
+                </button>
+              </div>
+            </div>
+          ) : (
+            <form
+              className="video-editor-preset-dialog"
+              onSubmit={(event) => void submitTextPresetDialog(event)}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="video-editor-text-preset-dialog-title"
+              aria-describedby="video-editor-text-preset-dialog-description"
+            >
+              <button
+                className="video-editor-dialog-close"
+                type="button"
+                onClick={closeTextPresetDialog}
+                disabled={textPresetBusy}
+                aria-label="텍스트 프리셋 창 닫기"
+              >
+                ×
+              </button>
+              <div className="video-editor-dialog-heading">
+                <span>TEXT PRESET</span>
+                <h2 id="video-editor-text-preset-dialog-title">
+                  {textPresetDialogMode === 'rename'
+                    ? '텍스트 프리셋 이름 수정'
+                    : '새 텍스트 프리셋 저장'}
+                </h2>
+                <p id="video-editor-text-preset-dialog-description">
+                  {textPresetDialogMode === 'rename'
+                    ? '저장된 영역과 스타일은 유지하고 프리셋 이름만 변경합니다.'
+                    : '텍스트를 제외한 영역 위치·크기와 스타일을 저장합니다.'}
+                </p>
+              </div>
+              <label className="video-editor-dialog-field">
+                <span>프리셋 이름</span>
+                <input
+                  autoFocus
+                  value={textPresetNameInput}
+                  onChange={(event) => setTextPresetNameInput(event.target.value)}
+                  placeholder="프리셋 이름"
+                  maxLength={VIDEO_EDITOR_PRESET_NAME_MAX_LENGTH}
+                  disabled={textPresetBusy}
+                />
+              </label>
+              {textPresetError ? (
+                <p className="video-editor-error" role="alert">
+                  {textPresetError}
+                </p>
+              ) : null}
+              <div className="video-editor-dialog-actions">
+                <button type="button" onClick={closeTextPresetDialog} disabled={textPresetBusy}>
+                  취소
+                </button>
+                <button className="primary" type="submit" disabled={textPresetBusy}>
+                  {textPresetBusy
+                    ? '저장 중…'
+                    : textPresetDialogMode === 'rename'
+                      ? '수정'
+                      : '저장'}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      ) : null}
     </main>
   );
 }

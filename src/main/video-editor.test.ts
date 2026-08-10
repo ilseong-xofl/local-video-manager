@@ -6,16 +6,23 @@ import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  VIDEO_EDITOR_FONT_OPTIONS_BY_MARKET,
+  getDefaultVideoEditorFontFamily,
+} from '../shared/contracts';
+import {
   buildFfmpegArguments,
   parseFfmpegDurationMs,
   parseFfmpegProgressMs,
   parseVideoEditorPresetInput,
+  parseVideoEditorTextPresetInput,
   parseVideoRenderRequest,
 } from './video-editor';
 
 const textStyle = {
   backgroundColor: '#111111',
   backgroundOpacity: 0.8,
+  fontFamily: 'Noto Sans KR',
+  fontMarket: 'KR' as const,
   fontSizePercent: 4.5,
   fontWeight: 700 as const,
   textAlign: 'center' as const,
@@ -23,6 +30,58 @@ const textStyle = {
 };
 
 describe('video editor validation', () => {
+  it('exposes the Marketo font catalog for Korea, Japan, and the United States', () => {
+    expect(VIDEO_EDITOR_FONT_OPTIONS_BY_MARKET.KR.map((font) => font.value)).toEqual([
+      'Noto Sans KR',
+      'Black Han Sans',
+      'Jua',
+      'Do Hyeon',
+      'Gugi',
+      'Nanum Pen Script',
+      'Nanum Gothic',
+      'Sunflower',
+      'Gamja Flower',
+      'Yeon Sung',
+      'Gothic A1',
+      'Cute Font',
+      'Bagel Fat One',
+      'Hi Melody',
+      'East Sea Dokdo',
+    ]);
+    expect(VIDEO_EDITOR_FONT_OPTIONS_BY_MARKET.JP.map((font) => font.value)).toEqual([
+      'Noto Sans JP',
+      'M PLUS Rounded 1c',
+      'Kosugi Maru',
+      'Yusei Magic',
+      'RocknRoll One',
+      'Reggae One',
+      'DotGothic16',
+      'Zen Kaku Gothic New',
+    ]);
+    expect(VIDEO_EDITOR_FONT_OPTIONS_BY_MARKET.US.map((font) => font.value)).toEqual([
+      'Montserrat',
+      'Anton',
+      'Bebas Neue',
+      'Oswald',
+      'Archivo Black',
+      'Rubik',
+      'Fredoka',
+      'Bangers',
+      'Permanent Marker',
+      'Righteous',
+    ]);
+    expect(getDefaultVideoEditorFontFamily('KR')).toBe('Noto Sans KR');
+    expect(getDefaultVideoEditorFontFamily('JP')).toBe('Noto Sans JP');
+    expect(getDefaultVideoEditorFontFamily('US')).toBe('Montserrat');
+
+    for (const fonts of Object.values(VIDEO_EDITOR_FONT_OPTIONS_BY_MARKET)) {
+      expect(new Set(fonts.map((font) => font.label)).size).toBe(fonts.length);
+      expect(fonts.every((font) => !font.label.includes('(') && !font.label.includes(')'))).toBe(
+        true,
+      );
+    }
+  });
+
   it('normalizes a valid preset and enforces platform ratios', () => {
     expect(
       parseVideoEditorPresetInput({
@@ -52,6 +111,17 @@ describe('video editor validation', () => {
         resizeMode: 'crop',
       }),
     ).toThrow('Invalid video editor preset.');
+
+    expect(() =>
+      parseVideoEditorPresetInput({
+        aspectRatio: '9:16',
+        defaultTextStyle: { ...textStyle, fontFamily: 'Montserrat' },
+        letterboxColor: '#000000',
+        name: '권역과 맞지 않는 폰트',
+        platform: 'instagram',
+        resizeMode: 'letterbox',
+      }),
+    ).toThrow('Invalid video editor text style.');
   });
 
   it('accepts only bounded PNG overlay data', () => {
@@ -77,6 +147,42 @@ describe('video editor validation', () => {
         resizeMode: 'crop',
       }),
     ).toThrow('Invalid video render request.');
+  });
+
+  it('normalizes text presets without retaining text or runtime IDs', () => {
+    expect(
+      parseVideoEditorTextPresetInput({
+        name: '  상단 두 줄  ',
+        overlays: [
+          {
+            id: 'runtime-id',
+            region: { height: 0.18, width: 0.8, x: 0.1, y: 0.05 },
+            style: textStyle,
+            text: '저장하면 안 되는 문구',
+          },
+        ],
+      }),
+    ).toEqual({
+      name: '상단 두 줄',
+      overlays: [
+        {
+          region: { height: 0.18, width: 0.8, x: 0.1, y: 0.05 },
+          style: { ...textStyle, textColor: '#FFFFFF' },
+        },
+      ],
+    });
+
+    expect(() =>
+      parseVideoEditorTextPresetInput({
+        name: '잘못된 영역',
+        overlays: [
+          {
+            region: { height: 0.5, width: 0.5, x: 0.8, y: 0 },
+            style: textStyle,
+          },
+        ],
+      }),
+    ).toThrow('Invalid video editor text region.');
   });
 });
 

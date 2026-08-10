@@ -10,8 +10,12 @@ import type {
   LibraryVideoQuery,
   ManagedVideoTag,
   VideoReaction,
+  VideoEditorFontMarket,
   VideoEditorPreset,
   VideoEditorPresetInput,
+  VideoEditorTextPreset,
+  VideoEditorTextPresetInput,
+  VideoEditorTextStyle,
   VideoTag,
   VideoMetadataDetail,
   VideoMetadataInput,
@@ -20,7 +24,12 @@ import type {
   VideoMetadataSnapshot,
   VideoScanSummary,
 } from '../shared/contracts';
-import { VIDEO_TAG_NAME_MAX_LENGTH } from '../shared/contracts';
+import {
+  VIDEO_EDITOR_TEXT_PRESET_LIMIT,
+  VIDEO_TAG_NAME_MAX_LENGTH,
+  getDefaultVideoEditorFontFamily,
+  isVideoEditorFontFamily,
+} from '../shared/contracts';
 import type { ScannedVideoFile } from './video-scanner';
 
 const LIBRARY_ID_KEY = 'library_id';
@@ -29,7 +38,7 @@ const LEGACY_LIBRARY_ROOT_KEY = 'library_root';
 const LEGACY_LAST_SCANNED_AT_KEY = 'last_scanned_at';
 const METADATA_SEARCH_LIMIT = 50;
 const DATABASE_APPLICATION_ID = 0x4c564d31;
-const DATABASE_SCHEMA_VERSION = 4;
+const DATABASE_SCHEMA_VERSION = 5;
 const ALL_LIBRARY_VIDEOS_QUERY: LibraryVideoQuery = {
   dateFromMs: 0,
   dateToMs: Date.parse('9999-12-31T23:59:59.999Z'),
@@ -124,6 +133,17 @@ interface VideoEditorPresetRow {
   updatedAt: string;
 }
 
+interface VideoEditorTextPresetRow {
+  createdAt: string;
+  id: number;
+  name: string;
+  overlaysJson: string;
+}
+
+interface PresetCountRow {
+  presetCount: number;
+}
+
 interface BackupManifestRow {
   appVersion: string;
   schemaVersion: number;
@@ -131,17 +151,43 @@ interface BackupManifestRow {
 
 type MetadataSearchRecord = Omit<VideoMetadataSearchResult, 'thumbnailDataUrl'>;
 
+function normalizeStoredTextStyle(value: unknown): VideoEditorTextStyle {
+  const style = value as VideoEditorTextStyle;
+  const storedMarket = style.fontMarket;
+  const fontMarket: VideoEditorFontMarket =
+    storedMarket === 'KR' || storedMarket === 'JP' || storedMarket === 'US' ? storedMarket : 'KR';
+  const fontFamily =
+    typeof style.fontFamily === 'string' && isVideoEditorFontFamily(fontMarket, style.fontFamily)
+      ? style.fontFamily
+      : getDefaultVideoEditorFontFamily(fontMarket);
+
+  return { ...style, fontFamily, fontMarket };
+}
+
 function mapVideoEditorPreset(row: VideoEditorPresetRow): VideoEditorPreset {
   return {
     aspectRatio: row.aspectRatio,
     createdAt: row.createdAt,
-    defaultTextStyle: JSON.parse(row.defaultTextStyleJson) as VideoEditorPreset['defaultTextStyle'],
+    defaultTextStyle: normalizeStoredTextStyle(JSON.parse(row.defaultTextStyleJson)),
     id: row.id,
     letterboxColor: row.letterboxColor,
     name: row.name,
     platform: row.platform,
     resizeMode: row.resizeMode,
     updatedAt: row.updatedAt,
+  };
+}
+
+function mapVideoEditorTextPreset(row: VideoEditorTextPresetRow): VideoEditorTextPreset {
+  const overlays = JSON.parse(row.overlaysJson) as VideoEditorTextPreset['overlays'];
+  return {
+    createdAt: row.createdAt,
+    id: row.id,
+    name: row.name,
+    overlays: overlays.map((overlay) => ({
+      ...overlay,
+      style: normalizeStoredTextStyle(overlay.style),
+    })),
   };
 }
 
@@ -852,6 +898,95 @@ export class AppDatabase {
     this.database.prepare('DELETE FROM video_editor_presets WHERE id = ?').run(presetId);
   }
 
+  public getVideoEditorTextPresets(): VideoEditorTextPreset[] {
+    const rows = this.database
+      .prepare(
+        `
+          SELECT
+            id,
+            name,
+            overlays_json AS overlaysJson,
+            created_at AS createdAt
+          FROM video_editor_text_presets
+          ORDER BY created_at DESC, id DESC
+        `,
+      )
+      .all() as VideoEditorTextPresetRow[];
+
+    return rows.map(mapVideoEditorTextPreset);
+  }
+
+  public createVideoEditorTextPreset(input: VideoEditorTextPresetInput): VideoEditorTextPreset {
+    const presetId = this.database.transaction(() => {
+      const normalizedName = normalizeSearchText(input.name);
+      const duplicate = this.database
+        .prepare('SELECT 1 AS found FROM video_editor_text_presets WHERE normalized_name = ?')
+        .get(normalizedName) as TagExistsRow | undefined;
+      if (duplicate) {
+        throw new Error('A video editor text preset with this name already exists.');
+      }
+
+      const count = this.database
+        .prepare('SELECT COUNT(*) AS presetCount FROM video_editor_text_presets')
+        .get() as PresetCountRow;
+      if (count.presetCount >= VIDEO_EDITOR_TEXT_PRESET_LIMIT) {
+        throw new Error('The video editor text preset limit has been reached.');
+      }
+
+      const result = this.database
+        .prepare(
+          `
+            INSERT INTO video_editor_text_presets (
+              name,
+              normalized_name,
+              overlays_json,
+              created_at
+            ) VALUES (?, ?, ?, ?)
+          `,
+        )
+        .run(input.name, normalizedName, JSON.stringify(input.overlays), new Date().toISOString());
+      return Number(result.lastInsertRowid);
+    })();
+
+    return this.getVideoEditorTextPreset(presetId);
+  }
+
+  public updateVideoEditorTextPreset(
+    presetId: number,
+    input: VideoEditorTextPresetInput,
+  ): VideoEditorTextPreset {
+    this.assertVideoEditorTextPresetExists(presetId);
+    const normalizedName = normalizeSearchText(input.name);
+    const duplicate = this.database
+      .prepare(
+        'SELECT 1 AS found FROM video_editor_text_presets WHERE normalized_name = ? AND id <> ?',
+      )
+      .get(normalizedName, presetId) as TagExistsRow | undefined;
+    if (duplicate) {
+      throw new Error('A video editor text preset with this name already exists.');
+    }
+
+    this.database
+      .prepare(
+        `
+          UPDATE video_editor_text_presets
+          SET
+            name = ?,
+            normalized_name = ?,
+            overlays_json = ?
+          WHERE id = ?
+        `,
+      )
+      .run(input.name, normalizedName, JSON.stringify(input.overlays), presetId);
+
+    return this.getVideoEditorTextPreset(presetId);
+  }
+
+  public deleteVideoEditorTextPreset(presetId: number): void {
+    this.assertVideoEditorTextPresetExists(presetId);
+    this.database.prepare('DELETE FROM video_editor_text_presets WHERE id = ?').run(presetId);
+  }
+
   public getVideoMetadata(contentHash: string): VideoMetadataDetail {
     this.assertVideoExists(contentHash);
     const current = this.database
@@ -1279,6 +1414,14 @@ export class AppDatabase {
         updated_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS video_editor_text_presets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        normalized_name TEXT NOT NULL UNIQUE,
+        overlays_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS backup_manifest (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         app_version TEXT NOT NULL,
@@ -1485,6 +1628,27 @@ export class AppDatabase {
     return mapVideoEditorPreset(row);
   }
 
+  private getVideoEditorTextPreset(presetId: number): VideoEditorTextPreset {
+    const row = this.database
+      .prepare(
+        `
+          SELECT
+            id,
+            name,
+            overlays_json AS overlaysJson,
+            created_at AS createdAt
+          FROM video_editor_text_presets
+          WHERE id = ?
+        `,
+      )
+      .get(presetId) as VideoEditorTextPresetRow | undefined;
+    if (!row) {
+      throw new Error('Video editor text preset not found.');
+    }
+
+    return mapVideoEditorTextPreset(row);
+  }
+
   private tableExists(tableName: string): boolean {
     return Boolean(
       this.database
@@ -1525,6 +1689,15 @@ export class AppDatabase {
       .get(presetId) as TagExistsRow | undefined;
     if (!row) {
       throw new Error('Video editor preset not found.');
+    }
+  }
+
+  private assertVideoEditorTextPresetExists(presetId: number): void {
+    const row = this.database
+      .prepare('SELECT 1 AS found FROM video_editor_text_presets WHERE id = ?')
+      .get(presetId) as TagExistsRow | undefined;
+    if (!row) {
+      throw new Error('Video editor text preset not found.');
     }
   }
 
