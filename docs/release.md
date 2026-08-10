@@ -17,18 +17,23 @@ GitHub Actions가 제공하는 `GITHUB_REPOSITORY` 값을 Windows 앱에 빌드 
 
 ## 릴리스 절차
 
-1. `package.json`의 `version`을 올린다.
-2. 변경사항을 커밋하고 원격 저장소에 push한다.
-3. 같은 버전의 태그를 push한다. 예: 버전 `0.2.0`이면 `v0.2.0`.
-4. `release-windows.yml`이 Windows x64 installer를 생성한다.
-5. workflow가 `RELEASES`, `.nupkg`, installer `.exe`를 공개 GitHub Release에 올린다.
+1. 기능 브랜치의 pull request에서 macOS·Windows CI를 통과시킨다.
+2. 기존 공개 Release보다 높은 고유 버전으로 `package.json`의 `version`을 올린다.
+3. 승인된 pull request를 `main`에 병합한다.
+4. GitHub Actions의 `CI` workflow를 수동 실행하고 branch는 `main`을 선택한다.
+5. `windows-candidate` artifact를 내려받아 [Windows 배포 승인 체크리스트](./windows-acceptance.md)를 수행한다.
+6. Windows 검수가 통과한 동일 commit에 버전 태그를 push한다. 예: 버전 `0.2.0`이면 `v0.2.0`.
+7. `release-windows.yml`이 Windows x64 installer를 다시 생성한다.
+8. workflow가 `SHA256SUMS.txt`, `RELEASES`, `.nupkg`, installer `.exe`를 공개 GitHub Release에 올린다.
 
 ```bash
 git tag v0.2.0
 git push origin v0.2.0
 ```
 
-태그와 `package.json` 버전이 다르면 workflow가 릴리스를 중단한다. GitHub Release 게시에는 Actions 기본 `GITHUB_TOKEN`만 사용하며 별도 AWS 계정, bucket, secret은 필요하지 않다.
+후보 workflow는 이미 공개된 버전과 같은 `package.json` 버전을 거부한다. 태그와 `package.json` 버전이 다르면 release workflow도 릴리스를 중단한다. GitHub Release 게시에는 Actions 기본 `GITHUB_TOKEN`만 사용하며 별도 AWS 계정, bucket, secret은 필요하지 않다.
+
+Actions 후보 artifact는 14일 뒤 만료되며 GitHub Release나 자동 업데이트 대상으로 게시되지 않는다. 실제 배포는 태그 workflow에서 생성한 Release asset을 사용한다.
 
 ## 자동 업데이트 흐름
 
@@ -37,12 +42,11 @@ git push origin v0.2.0
 3. 새 버전이면 Squirrel이 `.nupkg`를 background로 다운로드한다.
 4. 다운로드가 끝나면 앱이 자동 재시작되고 새 버전이 적용된다.
 
-첫 릴리스는 설치 기준점이다. 실제 업데이트 검증은 첫 릴리스를 설치한 Windows 장비에서 더 높은 두 번째 버전을 게시해 수행한다.
+첫 릴리스는 설치 기준점이다. 실제 업데이트 검증은 첫 릴리스를 설치한 Windows 장비에서 더 높은 두 번째 버전을 게시해 수행한다. 공개 Release 게시 즉시 기존 설치본도 업데이트를 확인할 수 있으므로 테스트 대상과 영향 범위를 먼저 확인한다.
 
 ## 아직 필요한 외부 준비
 
-- GitHub 공개 저장소 생성과 remote 연결
 - Windows code-signing certificate
 - 실제 Windows x64 acceptance 장비
 
-코드 서명이 없으면 prototype installer는 실행할 수 있지만 Windows 경고가 표시될 수 있다. 경영진 승인 후 정식 배포 전에 code signing을 release gate로 추가한다.
+코드 서명이 없으면 후보 installer는 실행할 수 있지만 Windows 경고가 표시될 수 있다. 소수 테스트 이후 사내 전체 배포 전에 code signing을 release gate로 추가한다. 인증서와 비밀번호는 저장소에 넣지 않고 GitHub Actions secret 또는 서명 서비스 자격 증명으로 관리한다.
