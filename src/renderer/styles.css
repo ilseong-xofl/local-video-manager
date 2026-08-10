@@ -3718,10 +3718,16 @@ h2 {
 }
 
 .metadata-form textarea {
-  min-height: 150px;
+  min-height: 300px;
   padding: 12px 13px;
   line-height: 1.55;
   resize: vertical;
+}
+
+.metadata-form textarea.source-caption-auto {
+  min-height: 96px;
+  overflow-y: hidden;
+  resize: none;
 }
 
 .metadata-form input:focus,

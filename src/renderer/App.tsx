@@ -229,6 +229,7 @@ export function App() {
   const [videoMetadata, setVideoMetadata] = useState<VideoMetadataDetail | null>(null);
   const [sourceUrl, setSourceUrl] = useState('');
   const [sourceCaption, setSourceCaption] = useState('');
+  const [sourceCaptionAutoResize, setSourceCaptionAutoResize] = useState(false);
   const [loadingMetadata, setLoadingMetadata] = useState(false);
   const [savingMetadata, setSavingMetadata] = useState(false);
   const [metadataError, setMetadataError] = useState<string | null>(null);
@@ -244,6 +245,7 @@ export function App() {
   const [copiedFromVideo, setCopiedFromVideo] = useState<VideoMetadataSearchResult | null>(null);
   const [selectedVideoTagIds, setSelectedVideoTagIds] = useState<number[]>([]);
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
+  const sourceCaptionRef = useRef<HTMLTextAreaElement | null>(null);
   const settingsMenuRef = useRef<HTMLDivElement | null>(null);
   const databaseBusy = backingUpDatabase || restoringDatabase;
 
@@ -265,6 +267,17 @@ export function App() {
       })
       .catch(() => setError('앱 초기 정보를 불러오지 못했습니다.'));
   }, []);
+
+  useEffect(() => {
+    const textarea = sourceCaptionRef.current;
+    if (!sourceCaptionAutoResize || !textarea) {
+      return;
+    }
+
+    textarea.style.height = 'auto';
+    const borderHeight = textarea.offsetHeight - textarea.clientHeight;
+    textarea.style.height = `${textarea.scrollHeight + borderHeight}px`;
+  }, [loadingMetadata, sourceCaption, sourceCaptionAutoResize]);
 
   useEffect(() => {
     if (
@@ -752,6 +765,7 @@ export function App() {
     setVideoMetadata(null);
     setSourceUrl('');
     setSourceCaption('');
+    setSourceCaptionAutoResize(video.metadataRegistered);
     setMetadataError(null);
     setMetadataSaved(false);
     setMetadataSearchOpen(false);
@@ -778,6 +792,7 @@ export function App() {
   function closeMetadataEditor() {
     setEditingVideo(null);
     setVideoMetadata(null);
+    setSourceCaptionAutoResize(false);
     setMetadataError(null);
     setMetadataSaved(false);
     setMetadataSearchOpen(false);
@@ -2389,6 +2404,8 @@ export function App() {
               <label>
                 <span>원본 캡션</span>
                 <textarea
+                  ref={sourceCaptionRef}
+                  className={sourceCaptionAutoResize ? 'source-caption-auto' : undefined}
                   value={sourceCaption}
                   onChange={(event) => {
                     setSourceCaption(event.target.value);
