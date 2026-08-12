@@ -10,6 +10,10 @@ import type {
   LibraryVideoQuery,
   ManagedVideoTag,
   VideoReaction,
+  VideoCaptionCopywritingType,
+  VideoCaptionDraft,
+  VideoCaptionTargetLanguage,
+  VideoCaptionVariationId,
   VideoEditorFontMarket,
   VideoEditorPreset,
   VideoEditorPresetInput,
@@ -38,7 +42,7 @@ const LEGACY_LIBRARY_ROOT_KEY = 'library_root';
 const LEGACY_LAST_SCANNED_AT_KEY = 'last_scanned_at';
 const METADATA_SEARCH_LIMIT = 50;
 const DATABASE_APPLICATION_ID = 0x4c564d31;
-const DATABASE_SCHEMA_VERSION = 6;
+const DATABASE_SCHEMA_VERSION = 9;
 const ALL_LIBRARY_VIDEOS_QUERY: LibraryVideoQuery = {
   dateFromMs: 0,
   dateToMs: Date.parse('9999-12-31T23:59:59.999Z'),
@@ -140,6 +144,8 @@ interface VideoEditorTextPresetRow {
   name: string;
   overlaysJson: string;
 }
+
+type VideoCaptionDraftRow = VideoCaptionDraft;
 
 interface PresetCountRow {
   presetCount: number;
@@ -1002,6 +1008,62 @@ export class AppDatabase {
     this.database.prepare('DELETE FROM video_editor_text_presets WHERE id = ?').run(presetId);
   }
 
+  public getVideoCaptionDrafts(contentHash: string): VideoCaptionDraft[] {
+    this.assertVideoExists(contentHash);
+    return this.database
+      .prepare(
+        `
+          SELECT
+            id,
+            content_hash AS contentHash,
+            target_language AS targetLanguage,
+            variation_id AS variationId,
+            copywriting_type AS copywritingType,
+            caption,
+            created_at AS createdAt
+          FROM video_caption_drafts
+          WHERE content_hash = ?
+          ORDER BY id ASC
+        `,
+      )
+      .all(contentHash) as VideoCaptionDraftRow[];
+  }
+
+  public saveVideoCaptionDraft(
+    contentHash: string,
+    targetLanguage: VideoCaptionTargetLanguage,
+    variationId: VideoCaptionVariationId,
+    copywritingType: VideoCaptionCopywritingType,
+    caption: string,
+  ): VideoCaptionDraft {
+    this.assertVideoExists(contentHash);
+    const createdAt = new Date().toISOString();
+    const result = this.database
+      .prepare(
+        `
+          INSERT INTO video_caption_drafts (
+            content_hash,
+            target_language,
+            variation_id,
+            copywriting_type,
+            caption,
+            created_at
+          ) VALUES (?, ?, ?, ?, ?, ?)
+        `,
+      )
+      .run(contentHash, targetLanguage, variationId, copywritingType, caption, createdAt);
+
+    return {
+      caption,
+      contentHash,
+      copywritingType,
+      createdAt,
+      id: Number(result.lastInsertRowid),
+      targetLanguage,
+      variationId,
+    };
+  }
+
   public getVideoMetadata(contentHash: string): VideoMetadataDetail {
     this.assertVideoExists(contentHash);
     const current = this.database
@@ -1438,6 +1500,18 @@ export class AppDatabase {
         created_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS video_caption_drafts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        content_hash TEXT NOT NULL REFERENCES videos(content_hash) ON DELETE CASCADE,
+        target_language TEXT NOT NULL CHECK (target_language IN ('ko', 'ja', 'en')),
+        variation_id INTEGER CHECK (variation_id IS NULL OR variation_id IN (1, 2, 3, 4)),
+        copywriting_type TEXT CHECK (
+          copywriting_type IS NULL OR copywriting_type IN ('field-report', 'calm-analyst')
+        ),
+        caption TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS backup_manifest (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         app_version TEXT NOT NULL,
@@ -1476,6 +1550,24 @@ export class AppDatabase {
       this.database.exec(`
         ALTER TABLE videos
         ADD COLUMN view_count INTEGER NOT NULL DEFAULT 0 CHECK (view_count >= 0)
+      `);
+    }
+
+    if (!this.columnExists('video_caption_drafts', 'variation_id')) {
+      this.database.exec(`
+        ALTER TABLE video_caption_drafts
+        ADD COLUMN variation_id INTEGER CHECK (
+          variation_id IS NULL OR variation_id IN (1, 2, 3, 4)
+        )
+      `);
+    }
+
+    if (!this.columnExists('video_caption_drafts', 'copywriting_type')) {
+      this.database.exec(`
+        ALTER TABLE video_caption_drafts
+        ADD COLUMN copywriting_type TEXT CHECK (
+          copywriting_type IS NULL OR copywriting_type IN ('field-report', 'calm-analyst')
+        )
       `);
     }
 
@@ -1562,6 +1654,9 @@ export class AppDatabase {
 
       CREATE INDEX IF NOT EXISTS video_metadata_revisions_content_hash_idx
       ON video_metadata_revisions(content_hash, id DESC);
+
+      CREATE INDEX IF NOT EXISTS video_caption_drafts_content_hash_language_idx
+      ON video_caption_drafts(content_hash, target_language, id);
 
       CREATE INDEX IF NOT EXISTS video_tags_tag_id_idx
       ON video_tags(tag_id, content_hash);

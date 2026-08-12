@@ -128,7 +128,7 @@ describe('AppDatabase', () => {
           'SELECT app_version AS appVersion, schema_version AS schemaVersion FROM backup_manifest',
         )
         .get(),
-    ).toEqual({ appVersion: '0.1.1', schemaVersion: 6 });
+    ).toEqual({ appVersion: '0.1.1', schemaVersion: 9 });
     backupFile.close();
 
     database.saveVideoMetadata(contentHash, {
@@ -679,6 +679,109 @@ describe('AppDatabase', () => {
       revisions: [{ sourceCaption: 'Corrected caption' }, { sourceCaption: 'Original caption' }],
     });
     reopenedDatabase.close();
+  });
+
+  it('persists generated caption drafts with all generation options', () => {
+    const databasePath = createDatabasePath();
+    const contentHash = 'a'.repeat(64);
+    const database = new AppDatabase(databasePath);
+    database.setLibraryRoot('/videos');
+    database.syncVideoFiles([scannedVideo('first.mp4', contentHash)], {
+      hashedFileCount: 1,
+      reusedHashCount: 0,
+    });
+
+    const korean = database.saveVideoCaptionDraft(
+      contentHash,
+      'ko',
+      1,
+      'field-report',
+      '첫 번째 한국어 캡션',
+    );
+    const english = database.saveVideoCaptionDraft(
+      contentHash,
+      'en',
+      2,
+      'calm-analyst',
+      'First English caption',
+    );
+    const secondKorean = database.saveVideoCaptionDraft(
+      contentHash,
+      'ko',
+      3,
+      'field-report',
+      '두 번째 한국어 캡션',
+    );
+
+    expect(korean).toMatchObject({
+      caption: '첫 번째 한국어 캡션',
+      copywritingType: 'field-report',
+      variationId: 1,
+    });
+    expect(english).toMatchObject({
+      caption: 'First English caption',
+      copywritingType: 'calm-analyst',
+      variationId: 2,
+    });
+    expect(database.getVideoCaptionDrafts(contentHash)).toEqual([korean, english, secondKorean]);
+    database.close();
+
+    const reopenedDatabase = new AppDatabase(databasePath);
+    expect(reopenedDatabase.getVideoCaptionDrafts(contentHash)).toEqual([
+      korean,
+      english,
+      secondKorean,
+    ]);
+    reopenedDatabase.close();
+  });
+
+  it('migrates existing caption drafts without recorded generation options', () => {
+    const databasePath = createDatabasePath();
+    const contentHash = 'a'.repeat(64);
+    const legacy = new Database(databasePath);
+    legacy.exec(`
+      CREATE TABLE videos (
+        content_hash TEXT PRIMARY KEY,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE video_caption_drafts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        content_hash TEXT NOT NULL REFERENCES videos(content_hash) ON DELETE CASCADE,
+        target_language TEXT NOT NULL CHECK (target_language IN ('ko', 'ja', 'en')),
+        caption TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+    `);
+    legacy
+      .prepare('INSERT INTO videos (content_hash, created_at) VALUES (?, ?)')
+      .run(contentHash, '2026-08-12T00:00:00.000Z');
+    legacy
+      .prepare(
+        `
+          INSERT INTO video_caption_drafts (
+            content_hash,
+            target_language,
+            caption,
+            created_at
+          ) VALUES (?, ?, ?, ?)
+        `,
+      )
+      .run(contentHash, 'ko', '기존 캡션', '2026-08-12T00:00:00.000Z');
+    legacy.close();
+
+    const migrated = new AppDatabase(databasePath);
+    expect(migrated.getVideoCaptionDrafts(contentHash)).toEqual([
+      {
+        caption: '기존 캡션',
+        contentHash,
+        createdAt: '2026-08-12T00:00:00.000Z',
+        copywritingType: null,
+        id: 1,
+        targetLanguage: 'ko',
+        variationId: null,
+      },
+    ]);
+    migrated.close();
   });
 
   it('keeps metadata linked by content hash when the file location changes', () => {

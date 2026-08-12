@@ -42,6 +42,14 @@ import { scanVideoDirectory } from './video-scanner';
 import { parseVideoTagId, parseVideoTagIds, parseVideoTagName } from './video-tags';
 import { resolveVideoPlaybackPath } from './video-playback';
 import { VideoRenderManager } from './video-renderer';
+import {
+  parseGeneratedVideoCaption,
+  parseVideoCaptionCopywritingType,
+  parseVideoCaptionGenerationRequest,
+  parseVideoCaptionTargetLanguage,
+  parseVideoCaptionVariationId,
+} from './video-caption';
+import type { VideoCaptionGenerator } from './codex-caption-generator';
 
 function isDirectoryAvailable(directoryPath: string | null): boolean {
   if (!directoryPath) {
@@ -83,6 +91,7 @@ function pathsMatch(firstPath: string, secondPath: string): boolean {
 export function registerIpcHandlers(
   database: AppDatabase,
   thumbnailCache: ThumbnailCache,
+  videoCaptionGenerator: VideoCaptionGenerator,
 ): () => void {
   const videoRenderManager = new VideoRenderManager();
   ipcMain.handle(IPC_CHANNELS.getBootstrapState, () => buildBootstrapState(database));
@@ -241,6 +250,33 @@ export function registerIpcHandlers(
 
   ipcMain.handle(IPC_CHANNELS.getVideoMetadata, (_event, contentHash: unknown) =>
     database.getVideoMetadata(parseContentHash(contentHash)),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.getVideoCaptionDrafts, (_event, contentHash: unknown) =>
+    database.getVideoCaptionDrafts(parseContentHash(contentHash)),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.generateVideoCaption, (_event, request: unknown) =>
+    videoCaptionGenerator.generate(parseVideoCaptionGenerationRequest(request)),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.saveVideoCaptionDraft,
+    (
+      _event,
+      contentHash: unknown,
+      targetLanguage: unknown,
+      variationId: unknown,
+      copywritingType: unknown,
+      caption: unknown,
+    ) =>
+      database.saveVideoCaptionDraft(
+        parseContentHash(contentHash),
+        parseVideoCaptionTargetLanguage(targetLanguage),
+        parseVideoCaptionVariationId(variationId),
+        parseVideoCaptionCopywritingType(copywritingType),
+        parseGeneratedVideoCaption(caption),
+      ),
   );
 
   ipcMain.handle(
@@ -419,6 +455,9 @@ export function registerIpcHandlers(
     ipcMain.removeHandler(IPC_CHANNELS.setVideoReaction);
     ipcMain.removeHandler(IPC_CHANNELS.setVideoViewCount);
     ipcMain.removeHandler(IPC_CHANNELS.getVideoMetadata);
+    ipcMain.removeHandler(IPC_CHANNELS.getVideoCaptionDrafts);
+    ipcMain.removeHandler(IPC_CHANNELS.generateVideoCaption);
+    ipcMain.removeHandler(IPC_CHANNELS.saveVideoCaptionDraft);
     ipcMain.removeHandler(IPC_CHANNELS.searchVideoMetadata);
     ipcMain.removeHandler(IPC_CHANNELS.saveVideoMetadata);
     ipcMain.removeHandler(IPC_CHANNELS.scanLibrary);

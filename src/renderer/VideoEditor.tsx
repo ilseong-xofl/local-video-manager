@@ -8,6 +8,21 @@ import {
 } from 'react';
 
 import {
+  CAPTION_COPYWRITING_LABELS,
+  CAPTION_COPYWRITING_TYPES,
+  CAPTION_TARGET_LANGUAGES,
+  CAPTION_TARGET_LANGUAGE_LABELS,
+  CAPTION_VARIATION_IDS,
+  CAPTION_VARIATION_LABELS,
+  chooseCaptionCopywriting,
+  chooseCaptionVariation,
+  type CaptionCopywritingSelection,
+  type CaptionCopywritingType,
+  type CaptionTargetLanguage,
+  type CaptionVariationId,
+  type CaptionVariationSelection,
+} from './caption-generation-options';
+import {
   VIDEO_EDITOR_FONT_MARKET_LABELS,
   VIDEO_EDITOR_FONT_OPTIONS_BY_MARKET,
   VIDEO_EDITOR_OUTPUT_SIZES,
@@ -17,6 +32,7 @@ import {
   getDefaultVideoEditorFontFamily,
   isVideoEditorFontFamily,
   type LibraryVideoItem,
+  type VideoCaptionDraft,
   type VideoEditorAspectRatio,
   type VideoEditorFontMarket,
   type VideoEditorPlatform,
@@ -28,7 +44,7 @@ import {
   type VideoEditorTextStyle,
   type VideoRenderProgress,
 } from '../shared/contracts';
-import { fitPreviewStage } from './video-editor-layout';
+import { fitCaptionedPreviewStage } from './video-editor-layout';
 import { getOverlaySelectionAfterDelete } from './video-editor-overlays';
 
 interface VideoEditorProps {
@@ -44,6 +60,12 @@ interface DragState {
   startY: number;
 }
 
+interface PreviewScrollDragState {
+  pointerId: number;
+  scrollLeft: number;
+  startX: number;
+}
+
 type PresetDialogMode = 'create' | 'edit';
 type TextPresetDialogMode = 'choice' | 'create' | 'rename';
 type PlatformSettings = Pick<
@@ -53,6 +75,26 @@ type PlatformSettings = Pick<
 
 const MEDIA_CONTROLS_HEIGHT = 42;
 const MAX_PREVIEW_STAGE_HEIGHT = 680;
+const MIN_CAPTION_PANEL_WIDTH = 459;
+
+type CaptionHistory = Record<CaptionTargetLanguage, VideoCaptionDraft[]>;
+
+interface GeneratedCaptionOptions {
+  copywritingType: CaptionCopywritingType;
+  targetLanguage: CaptionTargetLanguage;
+  variationId: CaptionVariationId;
+}
+
+function createEmptyCaptionHistory(): CaptionHistory {
+  return { en: [], ja: [], ko: [] };
+}
+
+function formatCaptionHistoryDate(createdAt: string): string {
+  return new Intl.DateTimeFormat('ko-KR', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(createdAt));
+}
 
 const PLATFORM_LABELS: Record<VideoEditorPlatform, string> = {
   instagram: 'Instagram',
@@ -251,6 +293,24 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
   const [overlays, setOverlays] = useState<VideoEditorTextOverlay[]>([]);
   const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(null);
   const [previewAreaSize, setPreviewAreaSize] = useState({ height: 0, width: 0 });
+  const [previewScrollDragging, setPreviewScrollDragging] = useState(false);
+  const [sourceCaption, setSourceCaption] = useState<string | null>(null);
+  const [sourceCaptionLoading, setSourceCaptionLoading] = useState(true);
+  const [sourceCaptionError, setSourceCaptionError] = useState(false);
+  const [captionTargetLanguage, setCaptionTargetLanguage] = useState<CaptionTargetLanguage>('ko');
+  const [captionVariationSelection, setCaptionVariationSelection] =
+    useState<CaptionVariationSelection>('random');
+  const [captionCopywritingSelection, setCaptionCopywritingSelection] =
+    useState<CaptionCopywritingSelection>('random');
+  const [captionHistory, setCaptionHistory] = useState<CaptionHistory>(createEmptyCaptionHistory);
+  const [captionHistoryLoading, setCaptionHistoryLoading] = useState(true);
+  const [captionHistoryOpen, setCaptionHistoryOpen] = useState(false);
+  const [selectedCaptionHistoryId, setSelectedCaptionHistoryId] = useState<number | null>(null);
+  const [currentGeneratedCaption, setCurrentGeneratedCaption] = useState<string | null>(null);
+  const [currentGeneratedCaptionOptions, setCurrentGeneratedCaptionOptions] =
+    useState<GeneratedCaptionOptions | null>(null);
+  const [captionGenerationSaving, setCaptionGenerationSaving] = useState(false);
+  const [captionGenerationError, setCaptionGenerationError] = useState<string | null>(null);
   const [videoCurrentTime, setVideoCurrentTime] = useState(0);
   const [videoDuration, setVideoDuration] = useState(0);
   const [videoMuted, setVideoMuted] = useState(false);
@@ -263,6 +323,7 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
   const previewRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
+  const previewScrollDragStateRef = useRef<PreviewScrollDragState | null>(null);
   const activeJobIdRef = useRef<string | null>(null);
 
   const selectedOverlay = useMemo(
@@ -283,17 +344,30 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
   const outputSize = VIDEO_EDITOR_OUTPUT_SIZES[presetDraft.aspectRatio];
   const previewStageSize = useMemo(
     () =>
-      fitPreviewStage({
+      fitCaptionedPreviewStage({
         aspectHeight: outputSize.height,
         aspectWidth: outputSize.width,
         availableHeight: previewAreaSize.height,
-        availableWidth: previewAreaSize.width,
         controlsHeight: video.playbackUrl ? MEDIA_CONTROLS_HEIGHT : 0,
         maxStageHeight: MAX_PREVIEW_STAGE_HEIGHT,
+        minCaptionWidth: MIN_CAPTION_PANEL_WIDTH,
       }),
-    [outputSize.height, outputSize.width, previewAreaSize, video.playbackUrl],
+    [outputSize.height, outputSize.width, previewAreaSize.height, video.playbackUrl],
   );
   const previewHeight = previewStageSize?.height ?? 0;
+  const previewPanelHeight = previewStageSize
+    ? previewStageSize.height + (video.playbackUrl ? MEDIA_CONTROLS_HEIGHT : 0)
+    : undefined;
+  const previewCardHeight = previewPanelHeight ? previewPanelHeight + 2 : undefined;
+  const previewCardWidth = previewStageSize ? previewStageSize.pairWidth + 2 : 0;
+  const previewCanScroll = previewCardWidth > previewAreaSize.width;
+  const captionHistoryEntries = useMemo(
+    () =>
+      CAPTION_TARGET_LANGUAGES.flatMap((language) => captionHistory[language]).sort(
+        (left, right) => right.createdAt.localeCompare(left.createdAt) || right.id - left.id,
+      ),
+    [captionHistory],
+  );
   const rendering = renderStarting || renderProgress?.status === 'running';
   const showRenderStatus = rendering || renderProgress !== null || renderError !== null;
 
@@ -326,6 +400,75 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    setCaptionTargetLanguage('ko');
+    setCaptionVariationSelection('random');
+    setCaptionCopywritingSelection('random');
+    setCaptionHistory(createEmptyCaptionHistory());
+    setCaptionHistoryOpen(false);
+    setSelectedCaptionHistoryId(null);
+    setCurrentGeneratedCaption(null);
+    setCurrentGeneratedCaptionOptions(null);
+    setCaptionGenerationError(null);
+    setSourceCaptionLoading(true);
+    setSourceCaptionError(false);
+    void window.localVideoManager
+      .getVideoMetadata(video.contentHash)
+      .then((detail) => {
+        if (active) {
+          setSourceCaption(detail.current?.sourceCaption ?? null);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setSourceCaption(null);
+          setSourceCaptionError(true);
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setSourceCaptionLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [video.contentHash]);
+
+  useEffect(() => {
+    let active = true;
+    setCaptionHistoryLoading(true);
+    void window.localVideoManager
+      .getVideoCaptionDrafts(video.contentHash)
+      .then((drafts) => {
+        if (!active) {
+          return;
+        }
+
+        const history = createEmptyCaptionHistory();
+        for (const draft of drafts) {
+          history[draft.targetLanguage].push(draft);
+        }
+        setCaptionHistory(history);
+      })
+      .catch(() => {
+        if (active) {
+          setCaptionGenerationError('저장된 캡션 후보를 불러오지 못했습니다.');
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setCaptionHistoryLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [video.contentHash]);
 
   useEffect(() => {
     let active = true;
@@ -376,6 +519,22 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
     const timeoutId = window.setTimeout(() => setPresetMessage(null), 5_000);
     return () => window.clearTimeout(timeoutId);
   }, [presetMessage]);
+
+  useEffect(() => {
+    if (!captionHistoryOpen) {
+      return;
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setCaptionHistoryOpen(false);
+        setSelectedCaptionHistoryId(null);
+      }
+    }
+
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [captionHistoryOpen]);
 
   useEffect(() => {
     if (!platformMessage) {
@@ -916,6 +1075,111 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
     }
   }
 
+  function beginPreviewScroll(event: ReactPointerEvent<HTMLDivElement>) {
+    const target = event.target as Element;
+    if (
+      event.button !== 0 ||
+      event.currentTarget.scrollWidth <= event.currentTarget.clientWidth ||
+      target.closest('.video-editor-player, button, input, select, summary')
+    ) {
+      return;
+    }
+
+    event.currentTarget.setPointerCapture(event.pointerId);
+    previewScrollDragStateRef.current = {
+      pointerId: event.pointerId,
+      scrollLeft: event.currentTarget.scrollLeft,
+      startX: event.clientX,
+    };
+  }
+
+  function movePreviewScroll(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = previewScrollDragStateRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const deltaX = event.clientX - drag.startX;
+    if (Math.abs(deltaX) < 4) {
+      return;
+    }
+
+    event.preventDefault();
+    setPreviewScrollDragging(true);
+    event.currentTarget.scrollLeft = drag.scrollLeft - deltaX;
+  }
+
+  function endPreviewScroll(event: ReactPointerEvent<HTMLDivElement>) {
+    if (previewScrollDragStateRef.current?.pointerId !== event.pointerId) {
+      return;
+    }
+
+    previewScrollDragStateRef.current = null;
+    setPreviewScrollDragging(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  async function generateCaption() {
+    if (captionHistoryLoading || captionGenerationSaving) {
+      return;
+    }
+
+    if (!sourceCaption) {
+      setCaptionGenerationError('새 캡션을 만들 원본 캡션이 없습니다.');
+      return;
+    }
+
+    const variationId = chooseCaptionVariation(captionVariationSelection);
+    const copywritingType = chooseCaptionCopywriting(captionCopywritingSelection);
+
+    setCaptionGenerationSaving(true);
+    setCaptionGenerationError(null);
+    try {
+      let generatedCaption: string;
+      try {
+        const result = await window.localVideoManager.generateVideoCaption({
+          copywritingType,
+          sourceCaption,
+          targetLanguage: captionTargetLanguage,
+          variationId,
+        });
+        generatedCaption = result.caption;
+      } catch (error) {
+        console.error('[caption] Codex generation failed.', error);
+        setCaptionGenerationError(
+          'Codex로 새 캡션을 생성하지 못했습니다. Codex 로그인과 실행 경로를 확인하세요.',
+        );
+        return;
+      }
+
+      const savedDraft = await window.localVideoManager.saveVideoCaptionDraft(
+        video.contentHash,
+        captionTargetLanguage,
+        variationId,
+        copywritingType,
+        generatedCaption,
+      );
+      setCaptionHistory((current) => ({
+        ...current,
+        [savedDraft.targetLanguage]: [...current[savedDraft.targetLanguage], savedDraft],
+      }));
+      setCurrentGeneratedCaption(savedDraft.caption);
+      setCurrentGeneratedCaptionOptions({
+        copywritingType,
+        targetLanguage: captionTargetLanguage,
+        variationId,
+      });
+      setCaptionGenerationError(null);
+    } catch (error) {
+      console.error('[caption] Saving the generated caption failed.', error);
+      setCaptionGenerationError('생성된 캡션을 히스토리에 저장하지 못했습니다.');
+    } finally {
+      setCaptionGenerationSaving(false);
+    }
+  }
+
   function toggleVideoPlayback() {
     const element = videoRef.current;
     if (!element) {
@@ -1023,7 +1287,23 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
   }
 
   return (
-    <main className="video-editor-shell">
+    <main className="video-editor-shell" aria-busy={captionGenerationSaving}>
+      {captionGenerationSaving ? (
+        <div className="video-editor-caption-loading-backdrop">
+          <div className="video-editor-caption-loading-dialog" role="status" aria-live="polite">
+            <div className="video-editor-caption-generating-visual" aria-hidden="true">
+              <span />
+              <svg viewBox="0 0 24 24">
+                <path d="M12 3.5 13.4 8l4.1 1.5-4.1 1.5-1.4 4.5-1.4-4.5-4.1-1.5L10.6 8 12 3.5Z" />
+                <path d="m18.5 14 .7 2.2 2.3.8-2.3.8-.7 2.2-.7-2.2-2.3-.8 2.3-.8.7-2.2Z" />
+              </svg>
+            </div>
+            <strong>새 캡션을 만들고 있습니다</strong>
+            <span>원문과 선택한 옵션을 반영하는 중입니다.</span>
+          </div>
+        </div>
+      ) : null}
+
       {presetMessage || platformMessage || textPresetMessage ? (
         <div className="video-editor-toast-region" aria-live="polite" aria-atomic="true">
           {presetMessage ? (
@@ -1683,156 +1963,367 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
               <span>PREVIEW</span>
               <h2>결과 미리보기</h2>
             </div>
-            <p>영역을 드래그해 이동하고 우측 아래 점으로 크기를 조절하세요.</p>
+            <p>영상의 텍스트를 조절하고, 작은 창에서는 캡션을 좌우로 드래그하세요.</p>
           </div>
-          <div className="video-editor-preview-area" ref={previewAreaRef}>
+          <div
+            className={`video-editor-preview-area${previewCanScroll ? ' scrollable' : ''}${previewScrollDragging ? ' dragging' : ''}`}
+            ref={previewAreaRef}
+            role="region"
+            aria-label="영상과 원본 캡션 미리보기"
+            tabIndex={0}
+            onPointerDown={beginPreviewScroll}
+            onPointerMove={movePreviewScroll}
+            onPointerUp={endPreviewScroll}
+            onPointerCancel={endPreviewScroll}
+            onLostPointerCapture={endPreviewScroll}
+          >
             <div
-              className="video-editor-player"
-              ref={playerRef}
-              style={previewStageSize ? { width: previewStageSize.width } : undefined}
+              className="video-editor-preview-track"
+              style={previewCardWidth ? { width: previewCardWidth } : undefined}
             >
               <div
-                className="video-editor-stage"
-                ref={previewRef}
-                style={{
-                  aspectRatio: `${outputSize.width} / ${outputSize.height}`,
-                  backgroundColor: presetDraft.letterboxColor,
-                  height: previewStageSize?.height,
-                  width: previewStageSize ? '100%' : undefined,
-                }}
-                onPointerDown={() => setSelectedOverlayId(null)}
+                className="video-editor-preview-card"
+                style={
+                  previewCardHeight && previewCardWidth
+                    ? { height: previewCardHeight, width: previewCardWidth }
+                    : undefined
+                }
               >
-                {video.playbackUrl ? (
-                  <video
-                    ref={videoRef}
-                    src={video.playbackUrl}
-                    poster={video.thumbnailDataUrl ?? undefined}
-                    preload="metadata"
-                    style={{ objectFit: presetDraft.resizeMode === 'crop' ? 'cover' : 'contain' }}
-                    onDurationChange={(event) =>
-                      setVideoDuration(
-                        Number.isFinite(event.currentTarget.duration)
-                          ? event.currentTarget.duration
-                          : 0,
-                      )
-                    }
-                    onLoadedMetadata={(event) => {
-                      setVideoCurrentTime(event.currentTarget.currentTime);
-                      setVideoDuration(
-                        Number.isFinite(event.currentTarget.duration)
-                          ? event.currentTarget.duration
-                          : 0,
-                      );
-                      setVideoMuted(event.currentTarget.muted);
-                      setVideoPaused(event.currentTarget.paused);
-                    }}
-                    onPause={() => setVideoPaused(true)}
-                    onPlay={() => setVideoPaused(false)}
-                    onTimeUpdate={(event) => setVideoCurrentTime(event.currentTarget.currentTime)}
-                    onVolumeChange={(event) => setVideoMuted(event.currentTarget.muted)}
-                  />
-                ) : (
-                  <div className="video-editor-missing-video">원본 영상을 찾을 수 없습니다.</div>
-                )}
-                {overlays.map((overlay, index) => (
+                <div
+                  className="video-editor-player"
+                  ref={playerRef}
+                  style={previewStageSize ? { width: previewStageSize.width } : undefined}
+                >
                   <div
-                    className={
-                      overlay.id === selectedOverlayId
-                        ? 'video-editor-overlay selected'
-                        : 'video-editor-overlay'
-                    }
-                    key={overlay.id}
+                    className="video-editor-stage"
+                    ref={previewRef}
                     style={{
-                      backgroundColor: hexToRgba(
-                        overlay.style.backgroundColor,
-                        overlay.style.backgroundOpacity,
-                      ),
-                      color: overlay.style.textColor,
-                      fontFamily: formatFontFamily(overlay.style.fontFamily),
-                      fontSize: `${Math.max(9, (previewHeight * overlay.style.fontSizePercent) / 100)}px`,
-                      fontWeight: overlay.style.fontWeight,
-                      height: `${overlay.region.height * 100}%`,
-                      left: `${overlay.region.x * 100}%`,
-                      textAlign: overlay.style.textAlign,
-                      top: `${overlay.region.y * 100}%`,
-                      width: `${overlay.region.width * 100}%`,
+                      aspectRatio: `${outputSize.width} / ${outputSize.height}`,
+                      backgroundColor: presetDraft.letterboxColor,
+                      height: previewStageSize?.height,
+                      width: previewStageSize ? '100%' : undefined,
                     }}
-                    onPointerDown={(event) => beginDrag(event, overlay, 'move')}
-                    onPointerMove={(event) => moveOverlay(event, overlay.id)}
-                    onPointerUp={endDrag}
-                    onPointerCancel={endDrag}
-                    onLostPointerCapture={endDrag}
+                    onPointerDown={() => setSelectedOverlayId(null)}
                   >
-                    <span>{overlay.text || `영역 ${index + 1} · 텍스트 입력`}</span>
-                    {overlay.id === selectedOverlayId ? (
-                      <button
-                        className="video-editor-resize-handle"
-                        type="button"
-                        onPointerDown={(event) => beginDrag(event, overlay, 'resize')}
+                    {video.playbackUrl ? (
+                      <video
+                        ref={videoRef}
+                        src={video.playbackUrl}
+                        poster={video.thumbnailDataUrl ?? undefined}
+                        preload="metadata"
+                        style={{
+                          objectFit: presetDraft.resizeMode === 'crop' ? 'cover' : 'contain',
+                        }}
+                        onDurationChange={(event) =>
+                          setVideoDuration(
+                            Number.isFinite(event.currentTarget.duration)
+                              ? event.currentTarget.duration
+                              : 0,
+                          )
+                        }
+                        onLoadedMetadata={(event) => {
+                          setVideoCurrentTime(event.currentTarget.currentTime);
+                          setVideoDuration(
+                            Number.isFinite(event.currentTarget.duration)
+                              ? event.currentTarget.duration
+                              : 0,
+                          );
+                          setVideoMuted(event.currentTarget.muted);
+                          setVideoPaused(event.currentTarget.paused);
+                        }}
+                        onPause={() => setVideoPaused(true)}
+                        onPlay={() => setVideoPaused(false)}
+                        onTimeUpdate={(event) =>
+                          setVideoCurrentTime(event.currentTarget.currentTime)
+                        }
+                        onVolumeChange={(event) => setVideoMuted(event.currentTarget.muted)}
+                      />
+                    ) : (
+                      <div className="video-editor-missing-video">
+                        원본 영상을 찾을 수 없습니다.
+                      </div>
+                    )}
+                    {overlays.map((overlay, index) => (
+                      <div
+                        className={
+                          overlay.id === selectedOverlayId
+                            ? 'video-editor-overlay selected'
+                            : 'video-editor-overlay'
+                        }
+                        key={overlay.id}
+                        style={{
+                          backgroundColor: hexToRgba(
+                            overlay.style.backgroundColor,
+                            overlay.style.backgroundOpacity,
+                          ),
+                          color: overlay.style.textColor,
+                          fontFamily: formatFontFamily(overlay.style.fontFamily),
+                          fontSize: `${Math.max(9, (previewHeight * overlay.style.fontSizePercent) / 100)}px`,
+                          fontWeight: overlay.style.fontWeight,
+                          height: `${overlay.region.height * 100}%`,
+                          left: `${overlay.region.x * 100}%`,
+                          textAlign: overlay.style.textAlign,
+                          top: `${overlay.region.y * 100}%`,
+                          width: `${overlay.region.width * 100}%`,
+                        }}
+                        onPointerDown={(event) => beginDrag(event, overlay, 'move')}
                         onPointerMove={(event) => moveOverlay(event, overlay.id)}
                         onPointerUp={endDrag}
                         onPointerCancel={endDrag}
                         onLostPointerCapture={endDrag}
-                        aria-label={`영역 ${index + 1} 크기 조절`}
-                      />
-                    ) : null}
+                      >
+                        <span>{overlay.text || `영역 ${index + 1} · 텍스트 입력`}</span>
+                        {overlay.id === selectedOverlayId ? (
+                          <button
+                            className="video-editor-resize-handle"
+                            type="button"
+                            onPointerDown={(event) => beginDrag(event, overlay, 'resize')}
+                            onPointerMove={(event) => moveOverlay(event, overlay.id)}
+                            onPointerUp={endDrag}
+                            onPointerCancel={endDrag}
+                            onLostPointerCapture={endDrag}
+                            aria-label={`영역 ${index + 1} 크기 조절`}
+                          />
+                        ) : null}
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-              {video.playbackUrl ? (
-                <div className="video-editor-media-controls">
-                  <button
-                    type="button"
-                    onClick={toggleVideoPlayback}
-                    aria-label={videoPaused ? '영상 재생' : '영상 일시정지'}
-                    title={videoPaused ? '재생' : '일시정지'}
-                  >
-                    {videoPaused ? (
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M8 5v14l11-7z" />
-                      </svg>
-                    ) : (
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M7 5h4v14H7zm6 0h4v14h-4z" />
-                      </svg>
-                    )}
-                  </button>
-                  <span className="video-editor-media-time">
-                    {formatMediaTime(videoCurrentTime)} / {formatMediaTime(videoDuration)}
-                  </span>
-                  <input
-                    className="video-editor-media-seek"
-                    type="range"
-                    min="0"
-                    max={videoDuration || 0}
-                    step="0.01"
-                    value={Math.min(videoCurrentTime, videoDuration || 0)}
-                    onChange={(event) => seekVideo(Number(event.target.value))}
-                    aria-label="영상 재생 위치"
-                  />
-                  <button
-                    type="button"
-                    onClick={toggleVideoMuted}
-                    aria-label={videoMuted ? '영상 소리 켜기' : '영상 음소거'}
-                    title={videoMuted ? '소리 켜기' : '음소거'}
-                  >
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M4 9v6h4l5 4V5L8 9H4zm11.5 1.4v3.2c.9-.4 1.5-1 1.5-1.6s-.6-1.2-1.5-1.6z" />
-                      {videoMuted ? <path d="m17 9 4 6m0-6-4 6" className="stroke" /> : null}
-                    </svg>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={toggleVideoFullscreen}
-                    aria-label="영상 전체 화면"
-                    title="전체 화면"
-                  >
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M5 9V5h4M15 5h4v4M19 15v4h-4M9 19H5v-4" className="stroke" />
-                    </svg>
-                  </button>
+                  {video.playbackUrl ? (
+                    <div className="video-editor-media-controls">
+                      <button
+                        type="button"
+                        onClick={toggleVideoPlayback}
+                        aria-label={videoPaused ? '영상 재생' : '영상 일시정지'}
+                        title={videoPaused ? '재생' : '일시정지'}
+                      >
+                        {videoPaused ? (
+                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M8 5v14l11-7z" />
+                          </svg>
+                        ) : (
+                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M7 5h4v14H7zm6 0h4v14h-4z" />
+                          </svg>
+                        )}
+                      </button>
+                      <span className="video-editor-media-time">
+                        {formatMediaTime(videoCurrentTime)} / {formatMediaTime(videoDuration)}
+                      </span>
+                      <input
+                        className="video-editor-media-seek"
+                        type="range"
+                        min="0"
+                        max={videoDuration || 0}
+                        step="0.01"
+                        value={Math.min(videoCurrentTime, videoDuration || 0)}
+                        onChange={(event) => seekVideo(Number(event.target.value))}
+                        aria-label="영상 재생 위치"
+                      />
+                      <button
+                        type="button"
+                        onClick={toggleVideoMuted}
+                        aria-label={videoMuted ? '영상 소리 켜기' : '영상 음소거'}
+                        title={videoMuted ? '소리 켜기' : '음소거'}
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M4 9v6h4l5 4V5L8 9H4zm11.5 1.4v3.2c.9-.4 1.5-1 1.5-1.6s-.6-1.2-1.5-1.6z" />
+                          {videoMuted ? <path d="m17 9 4 6m0-6-4 6" className="stroke" /> : null}
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={toggleVideoFullscreen}
+                        aria-label="영상 전체 화면"
+                        title="전체 화면"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M5 9V5h4M15 5h4v4M19 15v4h-4M9 19H5v-4" className="stroke" />
+                        </svg>
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
+                <aside
+                  className="video-editor-caption-panel"
+                  style={previewStageSize ? { width: previewStageSize.captionWidth } : undefined}
+                  aria-labelledby="video-editor-caption-heading"
+                >
+                  <header className="video-editor-caption-heading">
+                    <div>
+                      <span>CAPTION WRITER</span>
+                      <h3 id="video-editor-caption-heading">새 캡션</h3>
+                    </div>
+                    <div className="video-editor-caption-actions">
+                      <button
+                        type="button"
+                        onClick={() => void generateCaption()}
+                        disabled={
+                          captionHistoryLoading ||
+                          captionGenerationSaving ||
+                          sourceCaptionLoading ||
+                          sourceCaptionError ||
+                          !sourceCaption
+                        }
+                      >
+                        {captionGenerationSaving
+                          ? '생성 중…'
+                          : currentGeneratedCaption
+                            ? '다시 생성'
+                            : '캡션 생성'}
+                      </button>
+                      <button
+                        className="video-editor-caption-history-button"
+                        type="button"
+                        onClick={() => {
+                          setSelectedCaptionHistoryId(null);
+                          setCaptionHistoryOpen(true);
+                        }}
+                        aria-label="캡션 히스토리 보기"
+                        title="캡션 히스토리"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M3 12a9 9 0 1 0 3-6.7M3 4.5v5h5" />
+                          <path d="M12 7v5l3 2" />
+                        </svg>
+                      </button>
+                    </div>
+                  </header>
+                  <div className="video-editor-caption-body">
+                    <section className="video-editor-generated-caption" aria-live="polite">
+                      <div className="video-editor-caption-generation-controls">
+                        <label className="video-editor-caption-generation-field">
+                          <span>언어</span>
+                          <select
+                            aria-label="새 캡션 대상 언어"
+                            value={captionTargetLanguage}
+                            onChange={(event) => {
+                              setCaptionTargetLanguage(event.target.value as CaptionTargetLanguage);
+                              setCurrentGeneratedCaption(null);
+                              setCurrentGeneratedCaptionOptions(null);
+                              setCaptionGenerationError(null);
+                            }}
+                            disabled={captionHistoryLoading || captionGenerationSaving}
+                          >
+                            {CAPTION_TARGET_LANGUAGES.map((language) => (
+                              <option key={language} value={language}>
+                                {CAPTION_TARGET_LANGUAGE_LABELS[language]}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="video-editor-caption-generation-field">
+                          <span>스타일</span>
+                          <select
+                            aria-label="새 캡션 스타일"
+                            value={captionVariationSelection}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setCaptionVariationSelection(
+                                value === 'random'
+                                  ? 'random'
+                                  : (Number(value) as CaptionVariationId),
+                              );
+                              setCaptionGenerationError(null);
+                            }}
+                            disabled={captionHistoryLoading || captionGenerationSaving}
+                          >
+                            <option value="random">랜덤 지정</option>
+                            {CAPTION_VARIATION_IDS.map((variationId) => (
+                              <option key={variationId} value={variationId}>
+                                {CAPTION_VARIATION_LABELS[variationId]}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="video-editor-caption-generation-field">
+                          <span>카피라이팅</span>
+                          <select
+                            aria-label="새 캡션 카피라이팅"
+                            value={captionCopywritingSelection}
+                            onChange={(event) => {
+                              setCaptionCopywritingSelection(
+                                event.target.value as CaptionCopywritingSelection,
+                              );
+                              setCaptionGenerationError(null);
+                            }}
+                            disabled={captionHistoryLoading || captionGenerationSaving}
+                          >
+                            <option value="random">랜덤 지정</option>
+                            {CAPTION_COPYWRITING_TYPES.map((copywritingType) => (
+                              <option key={copywritingType} value={copywritingType}>
+                                {CAPTION_COPYWRITING_LABELS[copywritingType]}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                      {currentGeneratedCaption ? (
+                        <>
+                          {currentGeneratedCaptionOptions ? (
+                            <div
+                              className="video-editor-generated-caption-options"
+                              aria-label="생성에 적용된 옵션"
+                            >
+                              <span>
+                                <strong>언어</strong>
+                                {
+                                  CAPTION_TARGET_LANGUAGE_LABELS[
+                                    currentGeneratedCaptionOptions.targetLanguage
+                                  ]
+                                }
+                              </span>
+                              <span>
+                                <strong>스타일</strong>
+                                {
+                                  CAPTION_VARIATION_LABELS[
+                                    currentGeneratedCaptionOptions.variationId
+                                  ]
+                                }
+                              </span>
+                              <span>
+                                <strong>카피라이팅</strong>
+                                {
+                                  CAPTION_COPYWRITING_LABELS[
+                                    currentGeneratedCaptionOptions.copywritingType
+                                  ]
+                                }
+                              </span>
+                            </div>
+                          ) : null}
+                          <p className="video-editor-generated-caption-copy">
+                            {currentGeneratedCaption}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="video-editor-caption-state">
+                          대상 언어를 선택하고 새 캡션을 생성하세요.
+                        </p>
+                      )}
+                      {captionGenerationError ? (
+                        <p className="video-editor-caption-generation-error" role="alert">
+                          {captionGenerationError}
+                        </p>
+                      ) : null}
+                    </section>
+                    <details className="video-editor-source-caption-details" open>
+                      <summary>원본 캡션 보기</summary>
+                      {sourceCaptionLoading ? (
+                        <p className="video-editor-caption-state" role="status">
+                          원본 캡션을 불러오는 중…
+                        </p>
+                      ) : sourceCaptionError ? (
+                        <p className="video-editor-caption-state error" role="alert">
+                          원본 캡션을 불러오지 못했습니다.
+                        </p>
+                      ) : sourceCaption ? (
+                        <p className="video-editor-source-caption">{sourceCaption}</p>
+                      ) : (
+                        <p className="video-editor-caption-state">등록된 원본 캡션이 없습니다.</p>
+                      )}
+                    </details>
+                  </div>
+                </aside>
+              </div>
             </div>
           </div>
 
@@ -1885,6 +2376,92 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
           ) : null}
         </section>
       </div>
+
+      {captionHistoryOpen ? (
+        <div
+          className="video-editor-dialog-backdrop"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) {
+              setCaptionHistoryOpen(false);
+              setSelectedCaptionHistoryId(null);
+            }
+          }}
+        >
+          <section
+            className="video-editor-caption-history-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="video-editor-caption-history-title"
+            aria-describedby="video-editor-caption-history-description"
+          >
+            <button
+              className="video-editor-dialog-close"
+              type="button"
+              onClick={() => {
+                setCaptionHistoryOpen(false);
+                setSelectedCaptionHistoryId(null);
+              }}
+              aria-label="캡션 히스토리 닫기"
+            >
+              ×
+            </button>
+            <div className="video-editor-dialog-heading">
+              <span>CAPTION HISTORY</span>
+              <h2 id="video-editor-caption-history-title">캡션 히스토리</h2>
+              <p id="video-editor-caption-history-description">
+                이전에 만든 캡션입니다. 항목을 누르면 전체 내용을 확인할 수 있습니다.
+              </p>
+            </div>
+            {captionHistoryLoading ? (
+              <p className="video-editor-caption-history-state" role="status">
+                히스토리를 불러오는 중…
+              </p>
+            ) : captionHistoryEntries.length > 0 ? (
+              <div className="video-editor-caption-history-list">
+                {captionHistoryEntries.map((draft) => {
+                  const expanded = selectedCaptionHistoryId === draft.id;
+                  return (
+                    <button
+                      className={`video-editor-caption-history-item${expanded ? ' expanded' : ''}`}
+                      type="button"
+                      key={draft.id}
+                      onClick={() => setSelectedCaptionHistoryId(expanded ? null : draft.id)}
+                      aria-expanded={expanded}
+                    >
+                      <span className="video-editor-caption-history-meta">
+                        <time dateTime={draft.createdAt}>
+                          {formatCaptionHistoryDate(draft.createdAt)}
+                        </time>
+                        <span className="video-editor-caption-history-options">
+                          <span>
+                            <strong>언어</strong>
+                            {CAPTION_TARGET_LANGUAGE_LABELS[draft.targetLanguage]}
+                          </span>
+                          <span>
+                            <strong>스타일</strong>
+                            {draft.variationId
+                              ? CAPTION_VARIATION_LABELS[draft.variationId]
+                              : '미기록'}
+                          </span>
+                          <span>
+                            <strong>카피라이팅</strong>
+                            {draft.copywritingType
+                              ? CAPTION_COPYWRITING_LABELS[draft.copywritingType]
+                              : '미기록'}
+                          </span>
+                        </span>
+                      </span>
+                      <span className="video-editor-caption-history-copy">{draft.caption}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="video-editor-caption-history-state">아직 생성한 캡션이 없습니다.</p>
+            )}
+          </section>
+        </div>
+      ) : null}
 
       {presetDialogMode ? (
         <div

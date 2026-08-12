@@ -4,6 +4,7 @@ import { app, BrowserWindow, nativeImage, protocol } from 'electron';
 import squirrelStartup from 'electron-squirrel-startup';
 
 import { AppDatabase, applyPendingDatabaseRestore } from './database';
+import { CodexExecVideoCaptionGenerator } from './codex-caption-generator';
 import { registerIpcHandlers } from './ipc';
 import { ThumbnailCache } from './thumbnail-cache';
 import { configureAutoUpdates } from './updates';
@@ -28,9 +29,9 @@ async function createSystemThumbnail(videoPath: string): Promise<Buffer | null> 
 
 function createWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
-    width: 1180,
-    height: 760,
-    minWidth: 880,
+    width: 1280,
+    height: 920,
+    minWidth: 1065,
     minHeight: 620,
     show: false,
     backgroundColor: '#f4f5f7',
@@ -82,7 +83,11 @@ if (squirrelStartup) {
       createSystemThumbnail,
     );
     removeVideoProtocol = registerVideoProtocol(database);
-    removeIpcHandlers = registerIpcHandlers(database, thumbnailCache);
+    removeIpcHandlers = registerIpcHandlers(
+      database,
+      thumbnailCache,
+      new CodexExecVideoCaptionGenerator(),
+    );
     createWindow();
 
     setTimeout(configureAutoUpdates, 10_000);

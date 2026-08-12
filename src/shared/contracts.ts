@@ -14,6 +14,9 @@ export const IPC_CHANNELS = {
   setVideoReaction: 'library:set-video-reaction',
   setVideoViewCount: 'library:set-video-view-count',
   getVideoMetadata: 'library:get-video-metadata',
+  getVideoCaptionDrafts: 'video-caption:get-drafts',
+  generateVideoCaption: 'video-caption:generate',
+  saveVideoCaptionDraft: 'video-caption:save-draft',
   searchVideoMetadata: 'library:search-video-metadata',
   saveVideoMetadata: 'library:save-video-metadata',
   scanLibrary: 'library:scan',
@@ -59,6 +62,12 @@ export type LibraryVideoSortField = 'modifiedAt' | 'registeredAt';
 export type VideoReaction = 'hype' | 'unhype';
 export type LibraryVideoReactionFilter = VideoReaction | 'none';
 export type VideoEditorPlatform = keyof typeof VIDEO_EDITOR_PLATFORM_RATIOS;
+export const VIDEO_CAPTION_TARGET_LANGUAGES = ['ko', 'ja', 'en'] as const;
+export type VideoCaptionTargetLanguage = (typeof VIDEO_CAPTION_TARGET_LANGUAGES)[number];
+export const VIDEO_CAPTION_VARIATION_IDS = [1, 2, 3, 4] as const;
+export type VideoCaptionVariationId = (typeof VIDEO_CAPTION_VARIATION_IDS)[number];
+export const VIDEO_CAPTION_COPYWRITING_TYPES = ['field-report', 'calm-analyst'] as const;
+export type VideoCaptionCopywritingType = (typeof VIDEO_CAPTION_COPYWRITING_TYPES)[number];
 export type VideoEditorAspectRatio = keyof typeof VIDEO_EDITOR_OUTPUT_SIZES;
 export type VideoEditorResizeMode = 'crop' | 'letterbox';
 export type VideoEditorTextAlign = 'left' | 'center' | 'right';
@@ -330,6 +339,27 @@ export interface VideoMetadataSearchResult extends VideoMetadataInput {
   thumbnailDataUrl: string | null;
 }
 
+export interface VideoCaptionDraft {
+  caption: string;
+  contentHash: string;
+  copywritingType: VideoCaptionCopywritingType | null;
+  createdAt: string;
+  id: number;
+  targetLanguage: VideoCaptionTargetLanguage;
+  variationId: VideoCaptionVariationId | null;
+}
+
+export interface VideoCaptionGenerationRequest {
+  copywritingType: VideoCaptionCopywritingType;
+  sourceCaption: string;
+  targetLanguage: VideoCaptionTargetLanguage;
+  variationId: VideoCaptionVariationId;
+}
+
+export interface VideoCaptionGenerationResult {
+  caption: string;
+}
+
 export interface LocalVideoManagerApi {
   getBootstrapState(): Promise<BootstrapState>;
   createDatabaseBackup(): Promise<DatabaseBackupResult>;
@@ -349,6 +379,17 @@ export interface LocalVideoManagerApi {
   openVideoSourceUrl(contentHash: string): Promise<void>;
   revealVideoFile(contentHash: string): Promise<void>;
   getVideoMetadata(contentHash: string): Promise<VideoMetadataDetail>;
+  getVideoCaptionDrafts(contentHash: string): Promise<VideoCaptionDraft[]>;
+  generateVideoCaption(
+    request: VideoCaptionGenerationRequest,
+  ): Promise<VideoCaptionGenerationResult>;
+  saveVideoCaptionDraft(
+    contentHash: string,
+    targetLanguage: VideoCaptionTargetLanguage,
+    variationId: VideoCaptionVariationId,
+    copywritingType: VideoCaptionCopywritingType,
+    caption: string,
+  ): Promise<VideoCaptionDraft>;
   searchVideoMetadata(
     query: string,
     excludeContentHash: string,
