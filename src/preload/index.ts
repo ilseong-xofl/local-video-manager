@@ -26,13 +26,23 @@ const api: LocalVideoManagerApi = {
   getVideoCaptionDrafts: (contentHash) =>
     ipcRenderer.invoke(IPC_CHANNELS.getVideoCaptionDrafts, contentHash),
   generateVideoCaption: (request) => ipcRenderer.invoke(IPC_CHANNELS.generateVideoCaption, request),
-  saveVideoCaptionDraft: (contentHash, targetLanguage, variationId, copywritingType, caption) =>
+  saveVideoCaptionDraft: (
+    contentHash,
+    targetLanguage,
+    variationId,
+    copywritingType,
+    topText,
+    bottomText,
+    caption,
+  ) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.saveVideoCaptionDraft,
       contentHash,
       targetLanguage,
       variationId,
       copywritingType,
+      topText,
+      bottomText,
       caption,
     ),
   searchVideoMetadata: (query, excludeContentHash) =>

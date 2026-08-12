@@ -128,7 +128,7 @@ describe('AppDatabase', () => {
           'SELECT app_version AS appVersion, schema_version AS schemaVersion FROM backup_manifest',
         )
         .get(),
-    ).toEqual({ appVersion: '0.1.1', schemaVersion: 9 });
+    ).toEqual({ appVersion: '0.1.1', schemaVersion: 10 });
     backupFile.close();
 
     database.saveVideoMetadata(contentHash, {
@@ -696,6 +696,8 @@ describe('AppDatabase', () => {
       'ko',
       1,
       'field-report',
+      '담장 앞의 장난',
+      '무너진 순간',
       '첫 번째 한국어 캡션',
     );
     const english = database.saveVideoCaptionDraft(
@@ -703,6 +705,8 @@ describe('AppDatabase', () => {
       'en',
       2,
       'calm-analyst',
+      'Wall Collapse',
+      'Repeated Impact',
       'First English caption',
     );
     const secondKorean = database.saveVideoCaptionDraft(
@@ -710,17 +714,23 @@ describe('AppDatabase', () => {
       'ko',
       3,
       'field-report',
+      '균열이 번진 순간',
+      '돌이킬 수 없는 결과',
       '두 번째 한국어 캡션',
     );
 
     expect(korean).toMatchObject({
+      bottomText: '무너진 순간',
       caption: '첫 번째 한국어 캡션',
       copywritingType: 'field-report',
+      topText: '담장 앞의 장난',
       variationId: 1,
     });
     expect(english).toMatchObject({
+      bottomText: 'Repeated Impact',
       caption: 'First English caption',
       copywritingType: 'calm-analyst',
+      topText: 'Wall Collapse',
       variationId: 2,
     });
     expect(database.getVideoCaptionDrafts(contentHash)).toEqual([korean, english, secondKorean]);
@@ -772,12 +782,14 @@ describe('AppDatabase', () => {
     const migrated = new AppDatabase(databasePath);
     expect(migrated.getVideoCaptionDrafts(contentHash)).toEqual([
       {
+        bottomText: null,
         caption: '기존 캡션',
         contentHash,
         createdAt: '2026-08-12T00:00:00.000Z',
         copywritingType: null,
         id: 1,
         targetLanguage: 'ko',
+        topText: null,
         variationId: null,
       },
     ]);

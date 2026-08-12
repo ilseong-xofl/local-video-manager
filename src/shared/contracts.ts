@@ -340,12 +340,14 @@ export interface VideoMetadataSearchResult extends VideoMetadataInput {
 }
 
 export interface VideoCaptionDraft {
+  bottomText: string | null;
   caption: string;
   contentHash: string;
   copywritingType: VideoCaptionCopywritingType | null;
   createdAt: string;
   id: number;
   targetLanguage: VideoCaptionTargetLanguage;
+  topText: string | null;
   variationId: VideoCaptionVariationId | null;
 }
 
@@ -357,7 +359,9 @@ export interface VideoCaptionGenerationRequest {
 }
 
 export interface VideoCaptionGenerationResult {
+  bottomText: string;
   caption: string;
+  topText: string;
 }
 
 export interface LocalVideoManagerApi {
@@ -388,6 +392,8 @@ export interface LocalVideoManagerApi {
     targetLanguage: VideoCaptionTargetLanguage,
     variationId: VideoCaptionVariationId,
     copywritingType: VideoCaptionCopywritingType,
+    topText: string,
+    bottomText: string,
     caption: string,
   ): Promise<VideoCaptionDraft>;
   searchVideoMetadata(

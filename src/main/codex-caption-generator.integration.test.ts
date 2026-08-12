@@ -15,7 +15,11 @@ describe.runIf(runIntegrationTest)('Codex caption generation integration', () =>
       variationId: 3,
     });
 
-    console.info(`\n[codex caption integration result]\n${result.caption}\n`);
+    console.info(
+      `\n[codex caption integration result]\n상단: ${result.topText}\n하단: ${result.bottomText}\n\n${result.caption}\n`,
+    );
+    expect([...result.topText].length).toBeLessThanOrEqual(15);
+    expect([...result.bottomText].length).toBeLessThanOrEqual(15);
     expect(result.caption).toMatch(/[가-힣]/);
     expect(result.caption.length).toBeGreaterThan(100);
     expect(result.caption).toContain('\n\n');

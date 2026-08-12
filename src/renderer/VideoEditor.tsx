@@ -33,6 +33,7 @@ import {
   isVideoEditorFontFamily,
   type LibraryVideoItem,
   type VideoCaptionDraft,
+  type VideoCaptionGenerationResult,
   type VideoEditorAspectRatio,
   type VideoEditorFontMarket,
   type VideoEditorPlatform,
@@ -94,6 +95,17 @@ function formatCaptionHistoryDate(createdAt: string): string {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(new Date(createdAt));
+}
+
+function formatCaptionHistoryCopy(draft: VideoCaptionDraft): string {
+  const screenText = [
+    draft.topText ? `상단 : ${draft.topText}` : null,
+    draft.bottomText ? `하단 : ${draft.bottomText}` : null,
+  ].filter((text): text is string => text !== null);
+
+  return [...screenText, ...(screenText.length > 0 ? [''] : []), `캡션 : ${draft.caption}`].join(
+    '\n',
+  );
 }
 
 const PLATFORM_LABELS: Record<VideoEditorPlatform, string> = {
@@ -306,7 +318,8 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
   const [captionHistoryLoading, setCaptionHistoryLoading] = useState(true);
   const [captionHistoryOpen, setCaptionHistoryOpen] = useState(false);
   const [selectedCaptionHistoryId, setSelectedCaptionHistoryId] = useState<number | null>(null);
-  const [currentGeneratedCaption, setCurrentGeneratedCaption] = useState<string | null>(null);
+  const [currentGeneratedCaption, setCurrentGeneratedCaption] =
+    useState<VideoCaptionGenerationResult | null>(null);
   const [currentGeneratedCaptionOptions, setCurrentGeneratedCaptionOptions] =
     useState<GeneratedCaptionOptions | null>(null);
   const [captionGenerationSaving, setCaptionGenerationSaving] = useState(false);
@@ -1137,7 +1150,7 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
     setCaptionGenerationSaving(true);
     setCaptionGenerationError(null);
     try {
-      let generatedCaption: string;
+      let generatedCaption: VideoCaptionGenerationResult;
       try {
         const result = await window.localVideoManager.generateVideoCaption({
           copywritingType,
@@ -1145,7 +1158,7 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
           targetLanguage: captionTargetLanguage,
           variationId,
         });
-        generatedCaption = result.caption;
+        generatedCaption = result;
       } catch (error) {
         console.error('[caption] Codex generation failed.', error);
         setCaptionGenerationError(
@@ -1159,13 +1172,19 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
         captionTargetLanguage,
         variationId,
         copywritingType,
-        generatedCaption,
+        generatedCaption.topText,
+        generatedCaption.bottomText,
+        generatedCaption.caption,
       );
       setCaptionHistory((current) => ({
         ...current,
         [savedDraft.targetLanguage]: [...current[savedDraft.targetLanguage], savedDraft],
       }));
-      setCurrentGeneratedCaption(savedDraft.caption);
+      setCurrentGeneratedCaption({
+        bottomText: savedDraft.bottomText ?? generatedCaption.bottomText,
+        caption: savedDraft.caption,
+        topText: savedDraft.topText ?? generatedCaption.topText,
+      });
       setCurrentGeneratedCaptionOptions({
         copywritingType,
         targetLanguage: captionTargetLanguage,
@@ -2290,9 +2309,22 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
                               </span>
                             </div>
                           ) : null}
-                          <p className="video-editor-generated-caption-copy">
-                            {currentGeneratedCaption}
-                          </p>
+                          <div className="video-editor-generated-caption-sections">
+                            <div className="video-editor-generated-screen-text">
+                              <strong>상단 :</strong>
+                              <span>{currentGeneratedCaption.topText}</span>
+                            </div>
+                            <div className="video-editor-generated-screen-text">
+                              <strong>하단 :</strong>
+                              <span>{currentGeneratedCaption.bottomText}</span>
+                            </div>
+                            <div className="video-editor-generated-caption-section">
+                              <strong>캡션 :</strong>
+                              <p className="video-editor-generated-caption-copy">
+                                {currentGeneratedCaption.caption}
+                              </p>
+                            </div>
+                          </div>
                         </>
                       ) : (
                         <p className="video-editor-caption-state">
@@ -2451,7 +2483,9 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
                           </span>
                         </span>
                       </span>
-                      <span className="video-editor-caption-history-copy">{draft.caption}</span>
+                      <span className="video-editor-caption-history-copy">
+                        {formatCaptionHistoryCopy(draft)}
+                      </span>
                     </button>
                   );
                 })}

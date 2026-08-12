@@ -7,16 +7,22 @@ import type {
   VideoCaptionGenerationRequest,
   VideoCaptionGenerationResult,
 } from '../shared/contracts';
-import { buildVideoCaptionPrompt, parseGeneratedVideoCaption } from './video-caption';
+import {
+  buildVideoCaptionPrompt,
+  parseGeneratedVideoCaption,
+  parseGeneratedVideoScreenText,
+} from './video-caption';
 
 const CODEX_EXEC_TIMEOUT_MS = 180_000;
 const CODEX_STDERR_MAX_LENGTH = 20_000;
 const CAPTION_OUTPUT_SCHEMA = {
   type: 'object',
   properties: {
+    bottomText: { type: 'string', maxLength: 15 },
     caption: { type: 'string' },
+    topText: { type: 'string', maxLength: 15 },
   },
-  required: ['caption'],
+  required: ['topText', 'bottomText', 'caption'],
   additionalProperties: false,
 } as const;
 
@@ -145,7 +151,7 @@ export async function executeCodexCaptionPrompt(prompt: string): Promise<string>
   }
 }
 
-export function parseCodexCaptionResponse(response: string): string {
+export function parseCodexCaptionResponse(response: string): VideoCaptionGenerationResult {
   let value: unknown;
   try {
     value = JSON.parse(response);
@@ -158,10 +164,18 @@ export function parseCodexCaptionResponse(response: string): string {
   }
 
   const responseObject = value as Record<string, unknown>;
-  if (Object.keys(responseObject).some((key) => key !== 'caption')) {
+  const responseKeys = Object.keys(responseObject);
+  if (
+    responseKeys.length !== 3 ||
+    responseKeys.some((key) => !['topText', 'bottomText', 'caption'].includes(key))
+  ) {
     throw new Error('Codex returned an invalid caption response.');
   }
-  return parseGeneratedVideoCaption(responseObject.caption);
+  return {
+    bottomText: parseGeneratedVideoScreenText(responseObject.bottomText),
+    caption: parseGeneratedVideoCaption(responseObject.caption),
+    topText: parseGeneratedVideoScreenText(responseObject.topText),
+  };
 }
 
 export class CodexExecVideoCaptionGenerator implements VideoCaptionGenerator {
@@ -169,6 +183,6 @@ export class CodexExecVideoCaptionGenerator implements VideoCaptionGenerator {
 
   async generate(request: VideoCaptionGenerationRequest): Promise<VideoCaptionGenerationResult> {
     const response = await this.runCodexExec(buildVideoCaptionPrompt(request));
-    return { caption: parseCodexCaptionResponse(response) };
+    return parseCodexCaptionResponse(response);
   }
 }

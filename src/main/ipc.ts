@@ -44,6 +44,7 @@ import { resolveVideoPlaybackPath } from './video-playback';
 import { VideoRenderManager } from './video-renderer';
 import {
   parseGeneratedVideoCaption,
+  parseGeneratedVideoScreenText,
   parseVideoCaptionCopywritingType,
   parseVideoCaptionGenerationRequest,
   parseVideoCaptionTargetLanguage,
@@ -268,6 +269,8 @@ export function registerIpcHandlers(
       targetLanguage: unknown,
       variationId: unknown,
       copywritingType: unknown,
+      topText: unknown,
+      bottomText: unknown,
       caption: unknown,
     ) =>
       database.saveVideoCaptionDraft(
@@ -275,6 +278,8 @@ export function registerIpcHandlers(
         parseVideoCaptionTargetLanguage(targetLanguage),
         parseVideoCaptionVariationId(variationId),
         parseVideoCaptionCopywritingType(copywritingType),
+        parseGeneratedVideoScreenText(topText),
+        parseGeneratedVideoScreenText(bottomText),
         parseGeneratedVideoCaption(caption),
       ),
   );

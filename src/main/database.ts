@@ -42,7 +42,7 @@ const LEGACY_LIBRARY_ROOT_KEY = 'library_root';
 const LEGACY_LAST_SCANNED_AT_KEY = 'last_scanned_at';
 const METADATA_SEARCH_LIMIT = 50;
 const DATABASE_APPLICATION_ID = 0x4c564d31;
-const DATABASE_SCHEMA_VERSION = 9;
+const DATABASE_SCHEMA_VERSION = 10;
 const ALL_LIBRARY_VIDEOS_QUERY: LibraryVideoQuery = {
   dateFromMs: 0,
   dateToMs: Date.parse('9999-12-31T23:59:59.999Z'),
@@ -1019,6 +1019,8 @@ export class AppDatabase {
             target_language AS targetLanguage,
             variation_id AS variationId,
             copywriting_type AS copywritingType,
+            top_text AS topText,
+            bottom_text AS bottomText,
             caption,
             created_at AS createdAt
           FROM video_caption_drafts
@@ -1034,6 +1036,8 @@ export class AppDatabase {
     targetLanguage: VideoCaptionTargetLanguage,
     variationId: VideoCaptionVariationId,
     copywritingType: VideoCaptionCopywritingType,
+    topText: string,
+    bottomText: string,
     caption: string,
   ): VideoCaptionDraft {
     this.assertVideoExists(contentHash);
@@ -1046,20 +1050,33 @@ export class AppDatabase {
             target_language,
             variation_id,
             copywriting_type,
+            top_text,
+            bottom_text,
             caption,
             created_at
-          ) VALUES (?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `,
       )
-      .run(contentHash, targetLanguage, variationId, copywritingType, caption, createdAt);
+      .run(
+        contentHash,
+        targetLanguage,
+        variationId,
+        copywritingType,
+        topText,
+        bottomText,
+        caption,
+        createdAt,
+      );
 
     return {
+      bottomText,
       caption,
       contentHash,
       copywritingType,
       createdAt,
       id: Number(result.lastInsertRowid),
       targetLanguage,
+      topText,
       variationId,
     };
   }
@@ -1508,6 +1525,8 @@ export class AppDatabase {
         copywriting_type TEXT CHECK (
           copywriting_type IS NULL OR copywriting_type IN ('field-report', 'calm-analyst')
         ),
+        top_text TEXT,
+        bottom_text TEXT,
         caption TEXT NOT NULL,
         created_at TEXT NOT NULL
       );
@@ -1568,6 +1587,20 @@ export class AppDatabase {
         ADD COLUMN copywriting_type TEXT CHECK (
           copywriting_type IS NULL OR copywriting_type IN ('field-report', 'calm-analyst')
         )
+      `);
+    }
+
+    if (!this.columnExists('video_caption_drafts', 'top_text')) {
+      this.database.exec(`
+        ALTER TABLE video_caption_drafts
+        ADD COLUMN top_text TEXT
+      `);
+    }
+
+    if (!this.columnExists('video_caption_drafts', 'bottom_text')) {
+      this.database.exec(`
+        ALTER TABLE video_caption_drafts
+        ADD COLUMN bottom_text TEXT
       `);
     }
 
