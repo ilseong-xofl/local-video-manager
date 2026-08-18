@@ -19,10 +19,13 @@
 - 영상별 원본 URL·원본 캡션 등록·수정과 SQLite 변경 이력
 - 현재 목록에 없는 과거 영상 검색과 URL·캡션 복사
 - 무결성·schema 검사와 복원 직전 자동 보존을 포함한 SQLite DB 백업·복원
+- 회사 네트워크와 관리자 등록 계정을 확인하는 필수 로그인
+- Electron `safeStorage` 기반 Bearer 세션 보관과 주기적 사용 권한 재검사
+- 별도 `local-video-manager-service`를 통한 OpenAI 캡션 생성
 - 공개 GitHub Releases 기반 Squirrel.Windows 자동 업데이트
 - Mac/Windows 품질 검사와 Windows 패키징 CI
 
-Auth와 중앙 API는 아직 구현하지 않았습니다. Gemini 생성은 영상 편집 기능과 함께 Phase 2에서 개발합니다. 현재 범위의 기준은 [제품 범위](docs/product-scope.md)에 있습니다.
+사용자 관리, 회사 IP 제한, 캡션 API와 OpenAI 키는 별도 `local-video-manager-service`가 담당합니다. Electron renderer에는 세션 토큰과 API 키를 노출하지 않습니다. 현재 범위의 기준은 [제품 범위](docs/product-scope.md)에 있습니다.
 
 ## 개발 시작
 
@@ -32,6 +35,8 @@ nvm use
 pnpm install
 pnpm start
 ```
+
+개발 실행은 `http://localhost:13080`의 로컬 Service 프록시를 기본으로 사용합니다. 다른 서비스를 테스트할 때만 비밀값이 아닌 `LOCAL_VIDEO_MANAGER_SERVICE_URL`로 주소를 덮어씁니다. 패키지 생성 시에는 HTTPS 운영 주소를 같은 환경값으로 주입하며, 패키지된 앱은 주소가 없거나 HTTP이면 실행을 차단합니다.
 
 개발 표준은 Node.js 24.18.0과 pnpm 10.28.1입니다. 최종 Windows 사용자는 Node.js나 pnpm을 설치하지 않습니다.
 

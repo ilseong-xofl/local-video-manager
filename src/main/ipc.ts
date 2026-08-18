@@ -7,12 +7,14 @@ import {
   dialog,
   ipcMain,
   shell,
+  type IpcMainInvokeEvent,
   type OpenDialogOptions,
   type SaveDialogOptions,
 } from 'electron';
 
 import {
   IPC_CHANNELS,
+  type AppAuthState,
   type BootstrapState,
   type ChooseLibraryRootResult,
   type DatabaseBackupResult,
@@ -50,7 +52,7 @@ import {
   parseVideoCaptionTargetLanguage,
   parseVideoCaptionVariationId,
 } from './video-caption';
-import type { VideoCaptionGenerator } from './codex-caption-generator';
+import type { ServiceApiClient } from './service-api';
 
 function isDirectoryAvailable(directoryPath: string | null): boolean {
   if (!directoryPath) {
@@ -92,12 +94,46 @@ function pathsMatch(firstPath: string, secondPath: string): boolean {
 export function registerIpcHandlers(
   database: AppDatabase,
   thumbnailCache: ThumbnailCache,
-  videoCaptionGenerator: VideoCaptionGenerator,
+  serviceClient: ServiceApiClient,
+  broadcastAuthState: (state: AppAuthState) => void,
 ): () => void {
   const videoRenderManager = new VideoRenderManager();
-  ipcMain.handle(IPC_CHANNELS.getBootstrapState, () => buildBootstrapState(database));
+  const updateAuthState = async () => {
+    const state = await serviceClient.getAuthState();
+    broadcastAuthState(state);
+    return state;
+  };
+  const handleProtected = <Arguments extends unknown[], Result>(
+    channel: string,
+    listener: (event: IpcMainInvokeEvent, ...args: Arguments) => Result | Promise<Result>,
+  ) => {
+    ipcMain.handle(channel, async (event, ...args: Arguments) => {
+      const state = await updateAuthState();
+      if (state.status !== 'authenticated') {
+        throw new Error(state.status === 'blocked' ? state.message : '로그인이 필요합니다.');
+      }
+      return listener(event, ...args);
+    });
+  };
 
-  ipcMain.handle(IPC_CHANNELS.createDatabaseBackup, async (): Promise<DatabaseBackupResult> => {
+  ipcMain.handle(IPC_CHANNELS.getAuthState, updateAuthState);
+  ipcMain.handle(IPC_CHANNELS.signIn, async (_event, email: unknown, password: unknown) => {
+    if (typeof email !== 'string' || typeof password !== 'string') {
+      throw new Error('아이디와 비밀번호를 확인해 주세요.');
+    }
+    const state = await serviceClient.signIn(email, password);
+    broadcastAuthState(state);
+    return state;
+  });
+  ipcMain.handle(IPC_CHANNELS.signOut, async () => {
+    const state = await serviceClient.signOut();
+    broadcastAuthState(state);
+    return state;
+  });
+  ipcMain.handle(IPC_CHANNELS.quitApp, () => app.quit());
+  handleProtected(IPC_CHANNELS.getBootstrapState, () => buildBootstrapState(database));
+
+  handleProtected(IPC_CHANNELS.createDatabaseBackup, async (): Promise<DatabaseBackupResult> => {
     const parentWindow = BrowserWindow.getFocusedWindow();
     const options: SaveDialogOptions = {
       title: '데이터베이스 백업 저장',
@@ -120,7 +156,7 @@ export function registerIpcHandlers(
     return { cancelled: false, filePath: result.filePath };
   });
 
-  ipcMain.handle(IPC_CHANNELS.restoreDatabaseBackup, async (): Promise<DatabaseRestoreResult> => {
+  handleProtected(IPC_CHANNELS.restoreDatabaseBackup, async (): Promise<DatabaseRestoreResult> => {
     const parentWindow = BrowserWindow.getFocusedWindow();
     const options: OpenDialogOptions = {
       title: '데이터베이스 백업 선택',
@@ -188,11 +224,11 @@ export function registerIpcHandlers(
     return { automaticBackupPath, cancelled: false };
   });
 
-  ipcMain.handle(IPC_CHANNELS.getLibraryVideoPage, (_event, pageIndex: unknown, query: unknown) =>
+  handleProtected(IPC_CHANNELS.getLibraryVideoPage, (_event, pageIndex: unknown, query: unknown) =>
     getLibraryVideoPage(database, thumbnailCache, pageIndex, query),
   );
 
-  ipcMain.handle(IPC_CHANNELS.openVideoSourceUrl, async (_event, contentHash: unknown) => {
+  handleProtected(IPC_CHANNELS.openVideoSourceUrl, async (_event, contentHash: unknown) => {
     const video = database.getLibraryVideoByHash(parseContentHash(contentHash));
     if (!video?.sourceUrl) {
       throw new Error('The video does not have a source URL.');
@@ -209,7 +245,7 @@ export function registerIpcHandlers(
     await shell.openExternal(sourceUrl);
   });
 
-  ipcMain.handle(IPC_CHANNELS.revealVideoFile, (_event, contentHash: unknown) => {
+  handleProtected(IPC_CHANNELS.revealVideoFile, (_event, contentHash: unknown) => {
     const libraryRoot = database.getLibraryRoot();
     const video = database.getLibraryVideoByHash(parseContentHash(contentHash));
     const filePath =
@@ -221,47 +257,54 @@ export function registerIpcHandlers(
     shell.showItemInFolder(filePath);
   });
 
-  ipcMain.handle(IPC_CHANNELS.getTags, () => database.getTags());
+  handleProtected(IPC_CHANNELS.getTags, () => database.getTags());
 
-  ipcMain.handle(IPC_CHANNELS.createTag, (_event, name: unknown) =>
+  handleProtected(IPC_CHANNELS.createTag, (_event, name: unknown) =>
     database.createVideoTag(parseVideoTagName(name)),
   );
 
-  ipcMain.handle(IPC_CHANNELS.renameTag, (_event, tagId: unknown, name: unknown) =>
+  handleProtected(IPC_CHANNELS.renameTag, (_event, tagId: unknown, name: unknown) =>
     database.renameVideoTag(parseVideoTagId(tagId), parseVideoTagName(name)),
   );
 
-  ipcMain.handle(IPC_CHANNELS.deleteTag, (_event, tagId: unknown) =>
+  handleProtected(IPC_CHANNELS.deleteTag, (_event, tagId: unknown) =>
     database.deleteVideoTag(parseVideoTagId(tagId)),
   );
 
-  ipcMain.handle(IPC_CHANNELS.setVideoTags, (_event, contentHash: unknown, tagIds: unknown) =>
+  handleProtected(IPC_CHANNELS.setVideoTags, (_event, contentHash: unknown, tagIds: unknown) =>
     database.setVideoTags(parseContentHash(contentHash), parseVideoTagIds(tagIds)),
   );
 
-  ipcMain.handle(IPC_CHANNELS.setVideoReaction, (_event, contentHash: unknown, reaction: unknown) =>
-    database.setVideoReaction(parseContentHash(contentHash), parseVideoReaction(reaction)),
+  handleProtected(
+    IPC_CHANNELS.setVideoReaction,
+    (_event, contentHash: unknown, reaction: unknown) =>
+      database.setVideoReaction(parseContentHash(contentHash), parseVideoReaction(reaction)),
   );
 
-  ipcMain.handle(
+  handleProtected(
     IPC_CHANNELS.setVideoViewCount,
     (_event, contentHash: unknown, viewCount: unknown) =>
       database.setVideoViewCount(parseContentHash(contentHash), parseVideoViewCount(viewCount)),
   );
 
-  ipcMain.handle(IPC_CHANNELS.getVideoMetadata, (_event, contentHash: unknown) =>
+  handleProtected(IPC_CHANNELS.getVideoMetadata, (_event, contentHash: unknown) =>
     database.getVideoMetadata(parseContentHash(contentHash)),
   );
 
-  ipcMain.handle(IPC_CHANNELS.getVideoCaptionDrafts, (_event, contentHash: unknown) =>
+  handleProtected(IPC_CHANNELS.getVideoCaptionDrafts, (_event, contentHash: unknown) =>
     database.getVideoCaptionDrafts(parseContentHash(contentHash)),
   );
 
-  ipcMain.handle(IPC_CHANNELS.generateVideoCaption, (_event, request: unknown) =>
-    videoCaptionGenerator.generate(parseVideoCaptionGenerationRequest(request)),
-  );
+  handleProtected(IPC_CHANNELS.generateVideoCaption, async (_event, request: unknown) => {
+    try {
+      return await serviceClient.generate(parseVideoCaptionGenerationRequest(request));
+    } catch (error) {
+      broadcastAuthState(await serviceClient.getAuthState());
+      throw error;
+    }
+  });
 
-  ipcMain.handle(
+  handleProtected(
     IPC_CHANNELS.saveVideoCaptionDraft,
     (
       _event,
@@ -284,7 +327,7 @@ export function registerIpcHandlers(
       ),
   );
 
-  ipcMain.handle(
+  handleProtected(
     IPC_CHANNELS.searchVideoMetadata,
     async (_event, query: unknown, excludeContentHash: unknown) => {
       const results = database.searchVideoMetadata(
@@ -301,7 +344,7 @@ export function registerIpcHandlers(
     },
   );
 
-  ipcMain.handle(
+  handleProtected(
     IPC_CHANNELS.saveVideoMetadata,
     (_event, contentHash: unknown, input: unknown, copiedFromContentHash: unknown) =>
       database.saveVideoMetadata(
@@ -311,7 +354,7 @@ export function registerIpcHandlers(
       ),
   );
 
-  ipcMain.handle(IPC_CHANNELS.chooseLibraryRoot, async (): Promise<ChooseLibraryRootResult> => {
+  handleProtected(IPC_CHANNELS.chooseLibraryRoot, async (): Promise<ChooseLibraryRootResult> => {
     const currentRoot = database.getLibraryRoot();
     const parentWindow = BrowserWindow.getFocusedWindow();
     const options: OpenDialogOptions = {
@@ -338,7 +381,7 @@ export function registerIpcHandlers(
     };
   });
 
-  ipcMain.handle(IPC_CHANNELS.scanLibrary, async (): Promise<ScanLibraryResult> => {
+  handleProtected(IPC_CHANNELS.scanLibrary, async (): Promise<ScanLibraryResult> => {
     const libraryRoot = database.getLibraryRoot();
     if (!isDirectoryAvailable(libraryRoot) || !libraryRoot) {
       throw new Error('The selected library folder is not available.');
@@ -353,13 +396,13 @@ export function registerIpcHandlers(
     };
   });
 
-  ipcMain.handle(IPC_CHANNELS.getVideoEditorPresets, () => database.getVideoEditorPresets());
+  handleProtected(IPC_CHANNELS.getVideoEditorPresets, () => database.getVideoEditorPresets());
 
-  ipcMain.handle(IPC_CHANNELS.createVideoEditorPreset, (_event, input: unknown) =>
+  handleProtected(IPC_CHANNELS.createVideoEditorPreset, (_event, input: unknown) =>
     database.createVideoEditorPreset(parseVideoEditorPresetInput(input)),
   );
 
-  ipcMain.handle(
+  handleProtected(
     IPC_CHANNELS.updateVideoEditorPreset,
     (_event, presetId: unknown, input: unknown) =>
       database.updateVideoEditorPreset(
@@ -368,19 +411,19 @@ export function registerIpcHandlers(
       ),
   );
 
-  ipcMain.handle(IPC_CHANNELS.deleteVideoEditorPreset, (_event, presetId: unknown) =>
+  handleProtected(IPC_CHANNELS.deleteVideoEditorPreset, (_event, presetId: unknown) =>
     database.deleteVideoEditorPreset(parseVideoEditorPresetId(presetId)),
   );
 
-  ipcMain.handle(IPC_CHANNELS.getVideoEditorTextPresets, () =>
+  handleProtected(IPC_CHANNELS.getVideoEditorTextPresets, () =>
     database.getVideoEditorTextPresets(),
   );
 
-  ipcMain.handle(IPC_CHANNELS.createVideoEditorTextPreset, (_event, input: unknown) =>
+  handleProtected(IPC_CHANNELS.createVideoEditorTextPreset, (_event, input: unknown) =>
     database.createVideoEditorTextPreset(parseVideoEditorTextPresetInput(input)),
   );
 
-  ipcMain.handle(
+  handleProtected(
     IPC_CHANNELS.updateVideoEditorTextPreset,
     (_event, presetId: unknown, input: unknown) =>
       database.updateVideoEditorTextPreset(
@@ -389,11 +432,11 @@ export function registerIpcHandlers(
       ),
   );
 
-  ipcMain.handle(IPC_CHANNELS.deleteVideoEditorTextPreset, (_event, presetId: unknown) =>
+  handleProtected(IPC_CHANNELS.deleteVideoEditorTextPreset, (_event, presetId: unknown) =>
     database.deleteVideoEditorTextPreset(parseVideoEditorTextPresetId(presetId)),
   );
 
-  ipcMain.handle(
+  handleProtected(
     IPC_CHANNELS.startVideoRender,
     async (event, contentHash: unknown, requestValue: unknown): Promise<StartVideoRenderResult> => {
       const parsedContentHash = parseContentHash(contentHash);
@@ -435,16 +478,20 @@ export function registerIpcHandlers(
     },
   );
 
-  ipcMain.handle(IPC_CHANNELS.cancelVideoRender, (_event, jobId: unknown) =>
+  handleProtected(IPC_CHANNELS.cancelVideoRender, (_event, jobId: unknown) =>
     videoRenderManager.cancel(parseVideoRenderJobId(jobId)),
   );
 
-  ipcMain.handle(IPC_CHANNELS.revealRenderedVideo, (_event, jobId: unknown) => {
+  handleProtected(IPC_CHANNELS.revealRenderedVideo, (_event, jobId: unknown) => {
     shell.showItemInFolder(videoRenderManager.getCompletedOutput(parseVideoRenderJobId(jobId)));
   });
 
   return () => {
     videoRenderManager.dispose();
+    ipcMain.removeHandler(IPC_CHANNELS.getAuthState);
+    ipcMain.removeHandler(IPC_CHANNELS.signIn);
+    ipcMain.removeHandler(IPC_CHANNELS.signOut);
+    ipcMain.removeHandler(IPC_CHANNELS.quitApp);
     ipcMain.removeHandler(IPC_CHANNELS.getBootstrapState);
     ipcMain.removeHandler(IPC_CHANNELS.createDatabaseBackup);
     ipcMain.removeHandler(IPC_CHANNELS.restoreDatabaseBackup);

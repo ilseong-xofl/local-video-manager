@@ -49,6 +49,7 @@ import { fitCaptionedPreviewStage } from './video-editor-layout';
 import { getOverlaySelectionAfterDelete } from './video-editor-overlays';
 
 interface VideoEditorProps {
+  captionEnabled: boolean;
   onBack(): void;
   video: LibraryVideoItem;
 }
@@ -279,7 +280,7 @@ async function createOverlayImageDataUrl(
   return canvas.toDataURL('image/png');
 }
 
-export function VideoEditor({ onBack, video }: VideoEditorProps) {
+export function VideoEditor({ captionEnabled, onBack, video }: VideoEditorProps) {
   const [presets, setPresets] = useState<VideoEditorPreset[]>([]);
   const [selectedPresetId, setSelectedPresetId] = useState<number | null>(null);
   const [presetDraft, setPresetDraft] = useState<VideoEditorPresetInput>(createDefaultPreset);
@@ -1139,6 +1140,11 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
       return;
     }
 
+    if (!captionEnabled) {
+      setCaptionGenerationError('이 계정에는 캡션 생성 권한이 없습니다.');
+      return;
+    }
+
     if (!sourceCaption) {
       setCaptionGenerationError('새 캡션을 만들 원본 캡션이 없습니다.');
       return;
@@ -1160,9 +1166,9 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
         });
         generatedCaption = result;
       } catch (error) {
-        console.error('[caption] Codex generation failed.', error);
+        console.error('[caption] Service generation failed.', error);
         setCaptionGenerationError(
-          'Codex로 새 캡션을 생성하지 못했습니다. Codex 로그인과 실행 경로를 확인하세요.',
+          '새 캡션을 생성하지 못했습니다. 로그인 상태와 서비스 연결을 확인하세요.',
         );
         return;
       }
@@ -2181,7 +2187,8 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
                           captionGenerationSaving ||
                           sourceCaptionLoading ||
                           sourceCaptionError ||
-                          !sourceCaption
+                          !sourceCaption ||
+                          !captionEnabled
                         }
                       >
                         {captionGenerationSaving
@@ -2331,7 +2338,11 @@ export function VideoEditor({ onBack, video }: VideoEditorProps) {
                           대상 언어를 선택하고 새 캡션을 생성하세요.
                         </p>
                       )}
-                      {captionGenerationError ? (
+                      {!captionEnabled ? (
+                        <p className="video-editor-caption-generation-error" role="alert">
+                          이 계정에는 캡션 생성 권한이 없습니다.
+                        </p>
+                      ) : captionGenerationError ? (
                         <p className="video-editor-caption-generation-error" role="alert">
                           {captionGenerationError}
                         </p>

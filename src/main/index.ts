@@ -1,11 +1,14 @@
 import { join } from 'node:path';
 
-import { app, BrowserWindow, nativeImage, protocol } from 'electron';
+import { app, BrowserWindow, nativeImage, powerMonitor, protocol, safeStorage } from 'electron';
 import squirrelStartup from 'electron-squirrel-startup';
 
+import { IPC_CHANNELS, type AppAuthState } from '../shared/contracts';
 import { AppDatabase, applyPendingDatabaseRestore } from './database';
-import { CodexExecVideoCaptionGenerator } from './codex-caption-generator';
+import { EncryptedAuthTokenStore } from './auth-token-store';
 import { registerIpcHandlers } from './ipc';
+import { ServiceApiClient } from './service-api';
+import { resolveServiceBaseUrl } from './service-config';
 import { ThumbnailCache } from './thumbnail-cache';
 import { configureAutoUpdates } from './updates';
 import { VIDEO_PROTOCOL_SCHEME } from './video-playback';
@@ -14,6 +17,8 @@ import { registerVideoProtocol } from './video-protocol';
 let database: AppDatabase | null = null;
 let removeIpcHandlers: (() => void) | null = null;
 let removeVideoProtocol: (() => void) | null = null;
+let removeResumeHandler: (() => void) | null = null;
+let mainWindow: BrowserWindow | null = null;
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -28,7 +33,7 @@ async function createSystemThumbnail(videoPath: string): Promise<Buffer | null> 
 }
 
 function createWindow(): BrowserWindow {
-  const mainWindow = new BrowserWindow({
+  const window = new BrowserWindow({
     width: 1280,
     height: 920,
     minWidth: 1065,
@@ -44,20 +49,24 @@ function createWindow(): BrowserWindow {
     },
   });
 
-  void mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
-  mainWindow.once('ready-to-show', () => mainWindow.show());
-  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
-    if (navigationUrl !== mainWindow.webContents.getURL()) {
+  mainWindow = window;
+  void window.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
+  window.once('ready-to-show', () => window.show());
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  window.webContents.on('will-navigate', (event, navigationUrl) => {
+    if (navigationUrl !== window.webContents.getURL()) {
       event.preventDefault();
     }
   });
+  window.on('closed', () => {
+    mainWindow = null;
+  });
 
   if (!app.isPackaged) {
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
+    window.webContents.openDevTools({ mode: 'detach' });
   }
 
-  return mainWindow;
+  return window;
 }
 
 if (squirrelStartup) {
@@ -82,18 +91,56 @@ if (squirrelStartup) {
       join(userDataPath, 'thumbnails'),
       createSystemThumbnail,
     );
-    removeVideoProtocol = registerVideoProtocol(database);
+    let serviceBaseUrl: string | null = null;
+    let serviceConfigurationError = '서비스 주소가 설정되지 않았습니다.';
+    try {
+      serviceBaseUrl = resolveServiceBaseUrl(undefined, LVM_SERVICE_URL, app.isPackaged);
+    } catch (error) {
+      if (error instanceof Error) {
+        serviceConfigurationError = error.message;
+      }
+    }
+    const tokenStore = new EncryptedAuthTokenStore(
+      join(userDataPath, 'auth', 'session.bin'),
+      safeStorage,
+    );
+    const serviceClient = new ServiceApiClient(
+      serviceBaseUrl,
+      tokenStore,
+      fetch,
+      serviceConfigurationError,
+    );
+    let currentAuthState: AppAuthState | null = null;
+    const broadcastAuthState = (state: AppAuthState) => {
+      currentAuthState = state;
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.isDestroyed()) {
+          window.webContents.send(IPC_CHANNELS.authStateChanged, state);
+        }
+      }
+    };
+    removeVideoProtocol = registerVideoProtocol(
+      database,
+      () => currentAuthState?.status === 'authenticated',
+    );
     removeIpcHandlers = registerIpcHandlers(
       database,
       thumbnailCache,
-      new CodexExecVideoCaptionGenerator(),
+      serviceClient,
+      broadcastAuthState,
     );
     createWindow();
+
+    const handleResume = () => {
+      void serviceClient.getAuthState().then(broadcastAuthState);
+    };
+    powerMonitor.on('resume', handleResume);
+    removeResumeHandler = () => powerMonitor.removeListener('resume', handleResume);
 
     setTimeout(configureAutoUpdates, 10_000);
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
+      if (!mainWindow) {
         createWindow();
       }
     });
@@ -110,7 +157,10 @@ if (squirrelStartup) {
     removeIpcHandlers = null;
     removeVideoProtocol?.();
     removeVideoProtocol = null;
+    removeResumeHandler?.();
+    removeResumeHandler = null;
     database?.close();
     database = null;
+    mainWindow = null;
   });
 }

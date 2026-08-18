@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import type {
+  AppAuthenticatedUser,
   BootstrapState,
   LibraryVideoReactionFilter,
   LibraryVideoItem,
@@ -167,7 +168,13 @@ function ViewCountIcon() {
   );
 }
 
-export function App() {
+interface AppProps {
+  captionEnabled: boolean;
+  currentUser: AppAuthenticatedUser;
+  onSignOut(): Promise<void>;
+}
+
+export function App({ captionEnabled, currentUser, onSignOut }: AppProps) {
   const [state, setState] = useState<BootstrapState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [choosingFolder, setChoosingFolder] = useState(false);
@@ -945,7 +952,13 @@ export function App() {
   }
 
   if (videoEditorVideo) {
-    return <VideoEditor video={videoEditorVideo} onBack={() => setVideoEditorVideo(null)} />;
+    return (
+      <VideoEditor
+        captionEnabled={captionEnabled}
+        video={videoEditorVideo}
+        onBack={() => setVideoEditorVideo(null)}
+      />
+    );
   }
 
   const libraryVisible = showLibrary && Boolean(state.libraryStats.lastScannedAt);
@@ -1116,6 +1129,29 @@ export function App() {
                         <span>
                           <strong>{restoringDatabase ? '복원 준비 중…' : 'DB 복원'}</strong>
                           <small>저장된 백업 불러오기</small>
+                        </span>
+                      </button>
+                      <div className="settings-menu-divider" />
+                      <div className="settings-account">
+                        <span>로그인 계정</span>
+                        <strong title={currentUser.email}>{currentUser.displayName}</strong>
+                        <small title={currentUser.email}>{currentUser.email}</small>
+                      </div>
+                      <button type="button" role="menuitem" onClick={() => void onSignOut()}>
+                        <span className="settings-item-icon">
+                          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path
+                              d="M10 5H6.5A2.5 2.5 0 0 0 4 7.5v9A2.5 2.5 0 0 0 6.5 19H10M14.5 8l4 4-4 4M9 12h9"
+                              stroke="currentColor"
+                              strokeWidth="1.7"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </span>
+                        <span>
+                          <strong>로그아웃</strong>
+                          <small>이 프로그램에서 계정 연결 해제</small>
                         </span>
                       </button>
                       <div className="settings-menu-footer">
@@ -1506,7 +1542,14 @@ export function App() {
                 <span>나만의 로컬 영상 라이브러리</span>
               </div>
             </div>
-            <span className="onboarding-version">v{state.appVersion}</span>
+            <div className="onboarding-session">
+              <span className="onboarding-version" title={currentUser.email}>
+                {currentUser.displayName} · v{state.appVersion}
+              </span>
+              <button type="button" onClick={() => void onSignOut()}>
+                로그아웃
+              </button>
+            </div>
           </header>
 
           <div className="onboarding-layout">

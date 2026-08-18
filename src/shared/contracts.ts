@@ -1,4 +1,9 @@
 export const IPC_CHANNELS = {
+  getAuthState: 'auth:get-state',
+  signIn: 'auth:sign-in',
+  signOut: 'auth:sign-out',
+  quitApp: 'app:quit',
+  authStateChanged: 'auth:state-changed',
   getBootstrapState: 'app:get-bootstrap-state',
   createDatabaseBackup: 'database:create-backup',
   restoreDatabaseBackup: 'database:restore-backup',
@@ -364,7 +369,30 @@ export interface VideoCaptionGenerationResult {
   topText: string;
 }
 
+export interface AppAuthenticatedUser {
+  displayName: string;
+  email: string;
+}
+
+export type AppAuthState =
+  | {
+      status: 'authenticated';
+      permissions: { caption: boolean };
+      user: AppAuthenticatedUser;
+    }
+  | { status: 'signed-out' }
+  | {
+      status: 'blocked';
+      reason: 'access' | 'configuration' | 'network' | 'service';
+      message: string;
+    };
+
 export interface LocalVideoManagerApi {
+  getAuthState(): Promise<AppAuthState>;
+  signIn(email: string, password: string): Promise<AppAuthState>;
+  signOut(): Promise<AppAuthState>;
+  quitApp(): Promise<void>;
+  onAuthStateChanged(listener: (state: AppAuthState) => void): () => void;
   getBootstrapState(): Promise<BootstrapState>;
   createDatabaseBackup(): Promise<DatabaseBackupResult>;
   restoreDatabaseBackup(): Promise<DatabaseRestoreResult>;

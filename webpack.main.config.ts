@@ -12,6 +12,7 @@ export const mainConfig: Configuration = {
     ...createPlugins(),
     new DefinePlugin({
       LVM_GITHUB_REPOSITORY: JSON.stringify(process.env.GITHUB_REPOSITORY ?? ''),
+      LVM_SERVICE_URL: JSON.stringify(process.env.LOCAL_VIDEO_MANAGER_SERVICE_URL ?? ''),
     }),
   ],
   resolve: {

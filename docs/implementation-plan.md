@@ -1,4 +1,4 @@
-# Phase 1 구현 계획
+# Local Video Manager 구현 계획
 
 각 단계는 동작 가능한 수직 슬라이스와 검증 결과를 남긴다.
 
@@ -66,23 +66,23 @@
 - 영상 root와 파일명이 달라져도 내용이 같은 영상은 기존 metadata에 다시 연결된다.
 - 재인코딩되어 hash가 달라진 영상은 새 영상으로 판정된다.
 
-## 4. Phase 2 편집과 Gemini
+## 4. 영상 편집과 서버 캡션 생성 — 구현 완료
 
-- `marketo-sync` 편집 기능 이식과 추가 기능 설계
-- 영상 content hash 하나에 여러 generation run을 연결하는 1:N 구조
-- 명시적인 생성 요청마다 Gemini를 새로 호출하고 새 결과 저장
-- 대제목·소제목·캡션·태그와 prompt version·model·생성 시각 이력
-- 과거 생성 결과 열람과 편집기 반영
-- Gemini API key를 Electron bundle에 포함하지 않는 호출 구조
+- 로컬 영상 편집과 화면 텍스트 교체
+- 영상 content hash 하나에 여러 캡션 생성 이력을 연결하는 1:N 구조
+- 언어·스타일·카피라이팅 선택과 요청마다 새 캡션 생성
+- 상단·하단 화면 문구와 본문 캡션 저장
+- 관리자 등록 계정 로그인과 회사 네트워크 접근 검사
+- OpenAI API 키를 별도 서비스에만 두는 호출 구조
 
 검증:
 
 - 같은 영상에서 여러 번 생성해도 각 결과가 별도 이력으로 남는다.
 - 새 요청이 과거 결과를 cache로 반환하지 않는다.
-- 원하는 과거 결과를 선택해 편집기에 적용할 수 있다.
-- Gemini API key가 Electron bundle에 포함되지 않는다.
+- 회사 밖, 미인증, 앱 권한 없음 상태에서는 본 화면을 사용할 수 없다.
+- OpenAI API key와 Bearer 토큰이 renderer bundle에 포함되지 않는다.
 
-중앙 DB 공유와 Auth 방식은 Phase 2 설계 시 별도로 확정한다.
+사용자·권한·캡션 요청 관리는 `local-video-manager-service`가 담당한다.
 
 ## 5. Windows 배포
 

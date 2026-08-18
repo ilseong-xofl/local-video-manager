@@ -12,6 +12,8 @@
 ## Mac 개발
 
 Mac에서는 UI, SQLite, 폴더 선택, scan domain logic과 단위 테스트를 개발한다.
+앱을 실행하기 전 `local-video-manager-service`에서 `pnpm dev`를 실행해
+`http://localhost:13080`의 로컬 프록시를 먼저 띄운다.
 
 ```bash
 nvm install
@@ -19,6 +21,9 @@ nvm use
 pnpm install
 pnpm start
 ```
+
+개발 앱은 위 로컬 서비스 주소를 기본으로 사용한다. 다른 주소가 필요한
+특수한 테스트에서만 `LOCAL_VIDEO_MANAGER_SERVICE_URL`을 지정한다.
 
 `better-sqlite3`는 native module이므로 Mac에서는 Mac용으로 설치되고, Forge가 Windows packaging 시 Windows용으로 다시 빌드한다. Mac의 `node_modules`를 Windows artifact에 복사하지 않는다.
 

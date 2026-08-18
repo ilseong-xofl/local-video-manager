@@ -8,8 +8,15 @@ import {
   VIDEO_PROTOCOL_SCHEME,
 } from './video-playback';
 
-export function registerVideoProtocol(database: AppDatabase): () => void {
+export function registerVideoProtocol(
+  database: AppDatabase,
+  hasAppAccess: () => boolean,
+): () => void {
   protocol.handle(VIDEO_PROTOCOL_SCHEME, async (request) => {
+    if (!hasAppAccess()) {
+      return new Response(null, { status: 403 });
+    }
+
     const contentHash = parseVideoPlaybackUrl(request.url);
     if (!contentHash) {
       return new Response(null, { status: 400 });

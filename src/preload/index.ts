@@ -3,6 +3,18 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS, type LocalVideoManagerApi } from '../shared/contracts';
 
 const api: LocalVideoManagerApi = {
+  getAuthState: () => ipcRenderer.invoke(IPC_CHANNELS.getAuthState),
+  signIn: (email, password) => ipcRenderer.invoke(IPC_CHANNELS.signIn, email, password),
+  signOut: () => ipcRenderer.invoke(IPC_CHANNELS.signOut),
+  quitApp: () => ipcRenderer.invoke(IPC_CHANNELS.quitApp),
+  onAuthStateChanged: (listener) => {
+    const handleState = (
+      _event: Electron.IpcRendererEvent,
+      state: Parameters<typeof listener>[0],
+    ) => listener(state);
+    ipcRenderer.on(IPC_CHANNELS.authStateChanged, handleState);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.authStateChanged, handleState);
+  },
   getBootstrapState: () => ipcRenderer.invoke(IPC_CHANNELS.getBootstrapState),
   createDatabaseBackup: () => ipcRenderer.invoke(IPC_CHANNELS.createDatabaseBackup),
   restoreDatabaseBackup: () => ipcRenderer.invoke(IPC_CHANNELS.restoreDatabaseBackup),
