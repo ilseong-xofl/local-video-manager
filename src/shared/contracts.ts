@@ -369,6 +369,18 @@ export interface VideoCaptionGenerationResult {
   topText: string;
 }
 
+export interface CaptionDailyUsage {
+  limit: 5;
+  remaining: number;
+  resetAt: string;
+  timeZone: 'Asia/Seoul';
+  used: number;
+}
+
+export interface VideoCaptionGenerationResponse extends VideoCaptionGenerationResult {
+  dailyUsage: CaptionDailyUsage;
+}
+
 export interface AppAuthenticatedUser {
   displayName: string;
   email: string;
@@ -377,13 +389,14 @@ export interface AppAuthenticatedUser {
 export type AppAuthState =
   | {
       status: 'authenticated';
+      dailyUsage: CaptionDailyUsage;
       permissions: { caption: boolean };
       user: AppAuthenticatedUser;
     }
   | { status: 'signed-out' }
   | {
       status: 'blocked';
-      reason: 'access' | 'configuration' | 'network' | 'service';
+      reason: 'access' | 'configuration' | 'service';
       message: string;
     };
 
@@ -414,7 +427,7 @@ export interface LocalVideoManagerApi {
   getVideoCaptionDrafts(contentHash: string): Promise<VideoCaptionDraft[]>;
   generateVideoCaption(
     request: VideoCaptionGenerationRequest,
-  ): Promise<VideoCaptionGenerationResult>;
+  ): Promise<VideoCaptionGenerationResponse>;
   saveVideoCaptionDraft(
     contentHash: string,
     targetLanguage: VideoCaptionTargetLanguage,

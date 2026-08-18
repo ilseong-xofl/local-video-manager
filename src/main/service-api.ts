@@ -2,12 +2,12 @@ import { randomUUID } from 'node:crypto';
 
 import type {
   AppAuthState,
+  CaptionDailyUsage,
   VideoCaptionGenerationRequest,
-  VideoCaptionGenerationResult,
+  VideoCaptionGenerationResponse,
 } from '../shared/contracts';
 import { parseGeneratedVideoCaption, parseGeneratedVideoScreenText } from './video-caption';
 import type { AuthTokenStore } from './auth-token-store';
-import type { VideoCaptionGenerator } from './codex-caption-generator';
 
 const ACCESS_TIMEOUT_MS = 15_000;
 const AUTH_TIMEOUT_MS = 20_000;
@@ -65,6 +65,7 @@ function parseAccessState(value: unknown): Extract<AppAuthState, { status: 'auth
   const body = value as Record<string, unknown>;
   const user = body.user as Record<string, unknown> | undefined;
   const permissions = body.permissions as Record<string, unknown> | undefined;
+  const dailyUsage = parseCaptionDailyUsage(body.dailyUsage);
   if (
     !user ||
     typeof user.displayName !== 'string' ||
@@ -76,20 +77,57 @@ function parseAccessState(value: unknown): Extract<AppAuthState, { status: 'auth
   }
 
   return {
+    dailyUsage,
     permissions: { caption: permissions.caption },
     status: 'authenticated',
     user: { displayName: user.displayName, email: user.email },
   };
 }
 
-function parseCaptionResult(value: unknown): VideoCaptionGenerationResult {
+function parseCaptionDailyUsage(value: unknown): CaptionDailyUsage {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new ServiceApiError('서버 응답 형식이 올바르지 않습니다.', 'INVALID_RESPONSE', 502);
+  }
+  const body = value as Record<string, unknown>;
+  if (
+    Object.keys(body).length !== 5 ||
+    Object.keys(body).some(
+      (key) => !['used', 'limit', 'remaining', 'resetAt', 'timeZone'].includes(key),
+    ) ||
+    body.limit !== 5 ||
+    typeof body.used !== 'number' ||
+    !Number.isInteger(body.used) ||
+    body.used < 0 ||
+    body.used > body.limit ||
+    typeof body.remaining !== 'number' ||
+    !Number.isInteger(body.remaining) ||
+    body.remaining !== body.limit - body.used ||
+    typeof body.resetAt !== 'string' ||
+    !Number.isFinite(Date.parse(body.resetAt)) ||
+    body.timeZone !== 'Asia/Seoul'
+  ) {
+    throw new ServiceApiError('서버 응답 형식이 올바르지 않습니다.', 'INVALID_RESPONSE', 502);
+  }
+
+  return {
+    limit: 5,
+    remaining: body.remaining,
+    resetAt: body.resetAt,
+    timeZone: 'Asia/Seoul',
+    used: body.used,
+  };
+}
+
+function parseCaptionResponse(value: unknown): VideoCaptionGenerationResponse {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new ServiceApiError('캡션 응답 형식이 올바르지 않습니다.', 'INVALID_RESPONSE', 502);
   }
   const body = value as Record<string, unknown>;
   if (
-    Object.keys(body).length !== 3 ||
-    Object.keys(body).some((key) => !['topText', 'bottomText', 'caption'].includes(key))
+    Object.keys(body).length !== 4 ||
+    Object.keys(body).some(
+      (key) => !['topText', 'bottomText', 'caption', 'dailyUsage'].includes(key),
+    )
   ) {
     throw new ServiceApiError('캡션 응답 형식이 올바르지 않습니다.', 'INVALID_RESPONSE', 502);
   }
@@ -98,6 +136,7 @@ function parseCaptionResult(value: unknown): VideoCaptionGenerationResult {
     return {
       bottomText: parseGeneratedVideoScreenText(body.bottomText),
       caption: parseGeneratedVideoCaption(body.caption),
+      dailyUsage: parseCaptionDailyUsage(body.dailyUsage),
       topText: parseGeneratedVideoScreenText(body.topText),
     };
   } catch {
@@ -106,13 +145,6 @@ function parseCaptionResult(value: unknown): VideoCaptionGenerationResult {
 }
 
 function blockedState(error: ServiceApiError): Extract<AppAuthState, { status: 'blocked' }> {
-  if (error.code === 'NETWORK_NOT_ALLOWED') {
-    return {
-      message: '허용된 회사 네트워크에서만 프로그램을 사용할 수 있습니다.',
-      reason: 'network',
-      status: 'blocked',
-    };
-  }
   if (
     ['ACCOUNT_DISABLED', 'APP_ACCESS_DENIED', 'ADMIN_REQUIRED', 'CAPTION_ACCESS_DENIED'].includes(
       error.code,
@@ -127,7 +159,7 @@ function blockedState(error: ServiceApiError): Extract<AppAuthState, { status: '
   };
 }
 
-export class ServiceApiClient implements VideoCaptionGenerator {
+export class ServiceApiClient {
   constructor(
     private readonly baseUrl: string | null,
     private readonly tokenStore: AuthTokenStore,
@@ -243,13 +275,6 @@ export class ServiceApiClient implements VideoCaptionGenerator {
     );
     if (!response.ok) {
       const error = await this.toApiError(response);
-      if (error.code === 'NETWORK_NOT_ALLOWED') {
-        throw new ServiceApiError(
-          '허용된 회사 네트워크에서만 프로그램을 사용할 수 있습니다.',
-          error.code,
-          error.status,
-        );
-      }
       if (error.status === 429) {
         throw new ServiceApiError(
           '로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.',
@@ -301,7 +326,7 @@ export class ServiceApiClient implements VideoCaptionGenerator {
     return { status: 'signed-out' };
   }
 
-  async generate(request: VideoCaptionGenerationRequest): Promise<VideoCaptionGenerationResult> {
+  async generate(request: VideoCaptionGenerationRequest): Promise<VideoCaptionGenerationResponse> {
     const accessState = await this.getAuthState();
     if (accessState.status !== 'authenticated') {
       const message =
@@ -310,6 +335,13 @@ export class ServiceApiClient implements VideoCaptionGenerator {
     }
     if (!accessState.permissions.caption) {
       throw new ServiceApiError('캡션 생성 권한이 없습니다.', 'CAPTION_ACCESS_DENIED', 403);
+    }
+    if (accessState.dailyUsage.remaining === 0) {
+      throw new ServiceApiError(
+        '오늘 사용할 수 있는 캡션 생성 5회를 모두 사용했습니다.',
+        'DAILY_CAPTION_LIMIT_REACHED',
+        429,
+      );
     }
 
     const token = await this.tokenStore.read();
@@ -329,6 +361,6 @@ export class ServiceApiClient implements VideoCaptionGenerator {
       }
       throw error;
     }
-    return parseCaptionResult(await readJson(response));
+    return parseCaptionResponse(await readJson(response));
   }
 }

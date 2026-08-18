@@ -22,6 +22,7 @@ import {
   type CaptionVariationId,
   type CaptionVariationSelection,
 } from './caption-generation-options';
+import { getCaptionGenerationErrorMessage } from './caption-generation-error';
 import {
   VIDEO_EDITOR_FONT_MARKET_LABELS,
   VIDEO_EDITOR_FONT_OPTIONS_BY_MARKET,
@@ -31,8 +32,10 @@ import {
   VIDEO_EDITOR_TEXT_PRESET_LIMIT,
   getDefaultVideoEditorFontFamily,
   isVideoEditorFontFamily,
+  type CaptionDailyUsage,
   type LibraryVideoItem,
   type VideoCaptionDraft,
+  type VideoCaptionGenerationResponse,
   type VideoCaptionGenerationResult,
   type VideoEditorAspectRatio,
   type VideoEditorFontMarket,
@@ -49,7 +52,9 @@ import { fitCaptionedPreviewStage } from './video-editor-layout';
 import { getOverlaySelectionAfterDelete } from './video-editor-overlays';
 
 interface VideoEditorProps {
+  captionDailyUsage: CaptionDailyUsage;
   captionEnabled: boolean;
+  onCaptionDailyUsageChange(dailyUsage: CaptionDailyUsage): void;
   onBack(): void;
   video: LibraryVideoItem;
 }
@@ -280,7 +285,13 @@ async function createOverlayImageDataUrl(
   return canvas.toDataURL('image/png');
 }
 
-export function VideoEditor({ captionEnabled, onBack, video }: VideoEditorProps) {
+export function VideoEditor({
+  captionDailyUsage,
+  captionEnabled,
+  onBack,
+  onCaptionDailyUsageChange,
+  video,
+}: VideoEditorProps) {
   const [presets, setPresets] = useState<VideoEditorPreset[]>([]);
   const [selectedPresetId, setSelectedPresetId] = useState<number | null>(null);
   const [presetDraft, setPresetDraft] = useState<VideoEditorPresetInput>(createDefaultPreset);
@@ -1145,6 +1156,11 @@ export function VideoEditor({ captionEnabled, onBack, video }: VideoEditorProps)
       return;
     }
 
+    if (captionDailyUsage.remaining === 0) {
+      setCaptionGenerationError('오늘 사용할 수 있는 캡션 생성 5회를 모두 사용했습니다.');
+      return;
+    }
+
     if (!sourceCaption) {
       setCaptionGenerationError('새 캡션을 만들 원본 캡션이 없습니다.');
       return;
@@ -1156,7 +1172,7 @@ export function VideoEditor({ captionEnabled, onBack, video }: VideoEditorProps)
     setCaptionGenerationSaving(true);
     setCaptionGenerationError(null);
     try {
-      let generatedCaption: VideoCaptionGenerationResult;
+      let generatedCaption: VideoCaptionGenerationResponse;
       try {
         const result = await window.localVideoManager.generateVideoCaption({
           copywritingType,
@@ -1165,11 +1181,10 @@ export function VideoEditor({ captionEnabled, onBack, video }: VideoEditorProps)
           variationId,
         });
         generatedCaption = result;
+        onCaptionDailyUsageChange(result.dailyUsage);
       } catch (error) {
         console.error('[caption] Service generation failed.', error);
-        setCaptionGenerationError(
-          '새 캡션을 생성하지 못했습니다. 로그인 상태와 서비스 연결을 확인하세요.',
-        );
+        setCaptionGenerationError(getCaptionGenerationErrorMessage(error));
         return;
       }
 
@@ -2179,6 +2194,17 @@ export function VideoEditor({ captionEnabled, onBack, video }: VideoEditorProps)
                       <h3 id="video-editor-caption-heading">새 캡션</h3>
                     </div>
                     <div className="video-editor-caption-actions">
+                      <span
+                        className={
+                          captionDailyUsage.remaining === 0
+                            ? 'video-editor-caption-usage exhausted'
+                            : 'video-editor-caption-usage'
+                        }
+                        aria-label={`오늘 캡션 생성 ${captionDailyUsage.used}/${captionDailyUsage.limit}회 사용`}
+                        title="오늘 캡션 생성 횟수"
+                      >
+                        {captionDailyUsage.used}/{captionDailyUsage.limit}
+                      </span>
                       <button
                         type="button"
                         onClick={() => void generateCaption()}
@@ -2188,7 +2214,8 @@ export function VideoEditor({ captionEnabled, onBack, video }: VideoEditorProps)
                           sourceCaptionLoading ||
                           sourceCaptionError ||
                           !sourceCaption ||
-                          !captionEnabled
+                          !captionEnabled ||
+                          captionDailyUsage.remaining === 0
                         }
                       >
                         {captionGenerationSaving
@@ -2341,6 +2368,10 @@ export function VideoEditor({ captionEnabled, onBack, video }: VideoEditorProps)
                       {!captionEnabled ? (
                         <p className="video-editor-caption-generation-error" role="alert">
                           이 계정에는 캡션 생성 권한이 없습니다.
+                        </p>
+                      ) : captionDailyUsage.remaining === 0 ? (
+                        <p className="video-editor-caption-generation-error" role="status">
+                          오늘 생성 횟수를 모두 사용했습니다. KST 자정에 초기화됩니다.
                         </p>
                       ) : captionGenerationError ? (
                         <p className="video-editor-caption-generation-error" role="alert">

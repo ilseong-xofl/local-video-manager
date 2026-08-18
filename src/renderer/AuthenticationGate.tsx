@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 
-import type { AppAuthState } from '../shared/contracts';
+import type { AppAuthState, CaptionDailyUsage } from '../shared/contracts';
 import { companyEmailFromId } from '../shared/company-account';
 import { App } from './App';
 
@@ -57,6 +57,28 @@ export function AuthenticationGate() {
     };
   }, [refreshAuthState]);
 
+  useEffect(() => {
+    if (authState?.status !== 'authenticated') {
+      return;
+    }
+
+    const resetAt = Date.parse(authState.dailyUsage.resetAt);
+    if (!Number.isFinite(resetAt)) {
+      return;
+    }
+    const timeout = window.setTimeout(
+      () => void refreshAuthState(),
+      Math.max(5_000, resetAt - Date.now() + 1_000),
+    );
+    return () => window.clearTimeout(timeout);
+  }, [authState, refreshAuthState]);
+
+  const updateCaptionDailyUsage = useCallback((dailyUsage: CaptionDailyUsage) => {
+    setAuthState((current) =>
+      current?.status === 'authenticated' ? { ...current, dailyUsage } : current,
+    );
+  }, []);
+
   async function signIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submitting) {
@@ -103,7 +125,7 @@ export function AuthenticationGate() {
           <AuthBrand />
           <span className="auth-spinner" />
           <strong>사용 권한을 확인하고 있습니다</strong>
-          <p>회사 네트워크와 로그인 상태를 안전하게 확인하는 중입니다.</p>
+          <p>서비스 연결과 로그인 상태를 안전하게 확인하는 중입니다.</p>
         </section>
       </main>
     );
@@ -195,7 +217,6 @@ export function AuthenticationGate() {
               {submitting ? '로그인 중…' : '로그인'}
             </button>
           </form>
-          <p className="auth-network-note">회사 네트워크에서만 접속할 수 있습니다.</p>
         </section>
       </main>
     );
@@ -204,7 +225,9 @@ export function AuthenticationGate() {
   return (
     <App
       captionEnabled={authState.permissions.caption}
+      captionDailyUsage={authState.dailyUsage}
       currentUser={authState.user}
+      onCaptionDailyUsageChange={updateCaptionDailyUsage}
       onSignOut={signOut}
     />
   );

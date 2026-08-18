@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import type {
   AppAuthenticatedUser,
   BootstrapState,
+  CaptionDailyUsage,
   LibraryVideoReactionFilter,
   LibraryVideoItem,
   LibraryVideoPage,
@@ -170,11 +171,19 @@ function ViewCountIcon() {
 
 interface AppProps {
   captionEnabled: boolean;
+  captionDailyUsage: CaptionDailyUsage;
   currentUser: AppAuthenticatedUser;
+  onCaptionDailyUsageChange(dailyUsage: CaptionDailyUsage): void;
   onSignOut(): Promise<void>;
 }
 
-export function App({ captionEnabled, currentUser, onSignOut }: AppProps) {
+export function App({
+  captionDailyUsage,
+  captionEnabled,
+  currentUser,
+  onCaptionDailyUsageChange,
+  onSignOut,
+}: AppProps) {
   const [state, setState] = useState<BootstrapState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [choosingFolder, setChoosingFolder] = useState(false);
@@ -954,8 +963,10 @@ export function App({ captionEnabled, currentUser, onSignOut }: AppProps) {
   if (videoEditorVideo) {
     return (
       <VideoEditor
+        captionDailyUsage={captionDailyUsage}
         captionEnabled={captionEnabled}
         video={videoEditorVideo}
+        onCaptionDailyUsageChange={onCaptionDailyUsageChange}
         onBack={() => setVideoEditorVideo(null)}
       />
     );

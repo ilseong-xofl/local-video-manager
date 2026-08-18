@@ -72,7 +72,7 @@
 .video-editor-heading > span,
 .video-editor-panel-heading > div > span,
 .video-editor-preview-heading > div > span,
-.video-editor-caption-heading > div > span,
+.video-editor-caption-heading > div:first-child > span,
 .video-editor-render-copy > span {
   display: block;
   margin-bottom: 3px;
@@ -1009,6 +1009,31 @@
   gap: 6px;
 }
 
+.video-editor-caption-usage {
+  display: inline-grid;
+  height: 26px;
+  min-width: 38px;
+  place-items: center;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  border: 1px solid #dddffa;
+  border-radius: 999px;
+  background: #f6f6ff;
+  color: #5555c7;
+  font-size: 10px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.video-editor-caption-usage.exhausted {
+  border-color: #eadcdf;
+  background: #fff4f5;
+  color: #bd4e5a;
+}
+
 .video-editor-caption-actions select,
 .video-editor-caption-actions button {
   height: 32px;
@@ -1819,13 +1844,6 @@ body {
   height: 14px;
   border-color: rgba(255, 255, 255, 0.38);
   border-top-color: white;
-}
-
-.auth-network-note {
-  margin: 18px 0 0;
-  color: #a0a7b2;
-  font-size: 9px;
-  text-align: center;
 }
 
 .auth-state-card {

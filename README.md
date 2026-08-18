@@ -19,13 +19,15 @@
 - 영상별 원본 URL·원본 캡션 등록·수정과 SQLite 변경 이력
 - 현재 목록에 없는 과거 영상 검색과 URL·캡션 복사
 - 무결성·schema 검사와 복원 직전 자동 보존을 포함한 SQLite DB 백업·복원
-- 회사 네트워크와 관리자 등록 계정을 확인하는 필수 로그인
+- 관리자 등록 계정을 확인하는 필수 로그인
 - Electron `safeStorage` 기반 Bearer 세션 보관과 주기적 사용 권한 재검사
 - 별도 `local-video-manager-service`를 통한 OpenAI 캡션 생성
 - 공개 GitHub Releases 기반 Squirrel.Windows 자동 업데이트
 - Mac/Windows 품질 검사와 Windows 패키징 CI
 
-사용자 관리, 회사 IP 제한, 캡션 API와 OpenAI 키는 별도 `local-video-manager-service`가 담당합니다. Electron renderer에는 세션 토큰과 API 키를 노출하지 않습니다. 현재 범위의 기준은 [제품 범위](docs/product-scope.md)에 있습니다.
+사용자 관리, 캡션 요청의 회사 IP 제한, 캡션 API와 OpenAI 키는 별도
+`local-video-manager-service`가 담당합니다. Electron renderer에는 세션 토큰과 API
+키를 노출하지 않습니다. 현재 범위의 기준은 [제품 범위](docs/product-scope.md)에 있습니다.
 
 ## 개발 시작
 

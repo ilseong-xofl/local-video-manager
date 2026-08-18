@@ -26,7 +26,16 @@ function jsonResponse(body: unknown, status = 200, headers?: HeadersInit): Respo
   });
 }
 
+const unusedDailyUsage = {
+  limit: 5,
+  remaining: 5,
+  resetAt: '2026-08-18T15:00:00.000Z',
+  timeZone: 'Asia/Seoul',
+  used: 0,
+};
+
 const authenticatedAccess = {
+  dailyUsage: unusedDailyUsage,
   permissions: { caption: true },
   user: { displayName: '테스트 사용자', email: 'user@example.com' },
 };
@@ -51,27 +60,6 @@ describe('ServiceApiClient', () => {
       'https://service.example.com/api/v1/access',
       expect.objectContaining({ method: 'GET' }),
     );
-  });
-
-  it('blocks the application outside the allowed network', async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-      jsonResponse(
-        {
-          error: {
-            code: 'NETWORK_NOT_ALLOWED',
-            message: '허용된 회사 네트워크에서만 사용할 수 있습니다.',
-          },
-        },
-        403,
-      ),
-    );
-    const client = new ServiceApiClient('https://service.example.com', tokenStore, fetchMock);
-
-    await expect(client.getAuthState()).resolves.toEqual({
-      message: '허용된 회사 네트워크에서만 프로그램을 사용할 수 있습니다.',
-      reason: 'network',
-      status: 'blocked',
-    });
   });
 
   it('stores only the signed bearer header after login and verifies app access', async () => {
@@ -111,7 +99,12 @@ describe('ServiceApiClient', () => {
       .fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse(authenticatedAccess))
       .mockResolvedValueOnce(
-        jsonResponse({ bottomText: '무너진 순간', caption: '새 캡션', topText: '담장의 균열' }),
+        jsonResponse({
+          bottomText: '무너진 순간',
+          caption: '새 캡션',
+          dailyUsage: { ...unusedDailyUsage, remaining: 4, used: 1 },
+          topText: '담장의 균열',
+        }),
       );
     const client = new ServiceApiClient('https://service.example.com', tokenStore, fetchMock);
     const request = {
@@ -124,11 +117,70 @@ describe('ServiceApiClient', () => {
     await expect(client.generate(request)).resolves.toEqual({
       bottomText: '무너진 순간',
       caption: '새 캡션',
+      dailyUsage: { ...unusedDailyUsage, remaining: 4, used: 1 },
       topText: '담장의 균열',
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls[1][0]).toBe('https://service.example.com/api/v1/captions/generate');
     expect(fetchMock.mock.calls[1][1]?.body).toBe(JSON.stringify(request));
+  });
+
+  it('returns the company-network warning only when caption generation is denied', async () => {
+    tokenStore.token = 'signed-bearer-token';
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(authenticatedAccess))
+      .mockResolvedValueOnce(
+        jsonResponse(
+          {
+            error: {
+              code: 'NETWORK_NOT_ALLOWED',
+              message: '캡션 생성은 사내 네트워크에서만 가능합니다.',
+            },
+          },
+          403,
+        ),
+      );
+    const client = new ServiceApiClient('https://service.example.com', tokenStore, fetchMock);
+
+    await expect(
+      client.generate({
+        copywritingType: 'field-report',
+        sourceCaption: '古い壁が崩れた。',
+        targetLanguage: 'ko',
+        variationId: 2,
+      }),
+    ).rejects.toMatchObject({
+      code: 'NETWORK_NOT_ALLOWED',
+      message: '캡션 생성은 사내 네트워크에서만 가능합니다.',
+      status: 403,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not send a generation request after the server reports 5/5 usage', async () => {
+    tokenStore.token = 'signed-bearer-token';
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      jsonResponse({
+        ...authenticatedAccess,
+        dailyUsage: { ...unusedDailyUsage, remaining: 0, used: 5 },
+      }),
+    );
+    const client = new ServiceApiClient('https://service.example.com', tokenStore, fetchMock);
+
+    await expect(
+      client.generate({
+        copywritingType: 'field-report',
+        sourceCaption: '古い壁が崩れた。',
+        targetLanguage: 'ko',
+        variationId: 2,
+      }),
+    ).rejects.toMatchObject({
+      code: 'DAILY_CAPTION_LIMIT_REACHED',
+      message: '오늘 사용할 수 있는 캡션 생성 5회를 모두 사용했습니다.',
+      status: 429,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('clears an expired token and returns to the login state', async () => {
