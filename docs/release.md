@@ -5,14 +5,14 @@
 - 공개 GitHub 저장소의 GitHub Releases 사용
 - Squirrel.Windows installer maker
 - package된 Windows 앱에서만 updater 활성화
-- 실행 후 한 번 자동 update check
+- 실행 직후와 이후 1시간 간격의 자동 update check
 - background download
-- 사용자 승인 dialog 없음
-- download 완료 후 자동 재시작·설치
+- download 완료 후 `나중에` 또는 `지금 재시작` 선택
+- `나중에` 선택 시 정상 종료 후 다음 실행에서 자동 적용
 - 운영 Service 주소 `https://lvms.ilscp.net`을 패키지에 빌드 시 삽입
 - GitHub 저장소 정보가 없으면 안전하게 비활성화
 
-`update-electron-app`의 `ElectronPublicUpdateService`와 사용자 dialog를 만들지 않는 custom update callback을 사용한다. 앱 DB는 설치 directory가 아니라 Electron user-data directory에 있으므로 binary 교체와 분리된다.
+`update-electron-app`의 `ElectronPublicUpdateService`와 사용자 선택을 처리하는 custom update callback을 사용한다. 앱 DB는 설치 directory가 아니라 Electron user-data directory에 있으므로 binary 교체와 분리된다.
 
 GitHub Actions가 제공하는 `GITHUB_REPOSITORY` 값을 Windows 앱에 빌드 시 삽입한다. 따라서 GitHub owner와 repository 이름을 소스에 하드코딩하거나 별도 Repository variable로 등록하지 않는다.
 
@@ -46,7 +46,8 @@ Actions 후보 artifact는 14일 뒤 만료되며 GitHub Release나 자동 업�
 1. 설치된 앱이 `update.electronjs.org/<owner>/<repo>/win32-x64/<version>`을 확인한다.
 2. Electron 공식 서비스가 공개 GitHub Releases에서 최신 Windows artifact를 찾는다.
 3. 새 버전이면 Squirrel이 `.nupkg`를 background로 다운로드한다.
-4. 다운로드가 끝나면 앱이 자동 재시작되고 새 버전이 적용된다.
+4. 다운로드가 끝나면 재시작 선택 dialog를 표시한다.
+5. `지금 재시작`을 선택하면 즉시 적용하고, `나중에`를 선택하면 정상 종료 후 다음 실행에서 적용한다.
 
 첫 릴리스는 설치 기준점이다. 실제 업데이트 검증은 첫 릴리스를 설치한 Windows 장비에서 더 높은 두 번째 버전을 게시해 수행한다. 공개 Release 게시 즉시 기존 설치본도 업데이트를 확인할 수 있으므로 테스트 대상과 영향 범위를 먼저 확인한다.
 

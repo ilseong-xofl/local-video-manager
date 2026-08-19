@@ -33,6 +33,8 @@
 - Electron main process의 Service API client
 - OS `safeStorage`를 사용한 Bearer 세션 보관
 - Windows installer와 GitHub Releases 기반 자동 업데이트 코드
+- 업데이트는 백그라운드에서 내려받고, 완료되면 사용자가 즉시 재시작하거나 다음
+  실행까지 연기하도록 한다.
 
 ## 담당하지 않는 기능
 

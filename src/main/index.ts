@@ -18,6 +18,8 @@ let database: AppDatabase | null = null;
 let removeIpcHandlers: (() => void) | null = null;
 let removeVideoProtocol: (() => void) | null = null;
 let removeResumeHandler: (() => void) | null = null;
+let removeAutoUpdates: (() => void) | null = null;
+let autoUpdateTimer: ReturnType<typeof setTimeout> | null = null;
 let mainWindow: BrowserWindow | null = null;
 
 protocol.registerSchemesAsPrivileged([
@@ -137,7 +139,10 @@ if (squirrelStartup) {
     powerMonitor.on('resume', handleResume);
     removeResumeHandler = () => powerMonitor.removeListener('resume', handleResume);
 
-    setTimeout(configureAutoUpdates, 10_000);
+    autoUpdateTimer = setTimeout(() => {
+      autoUpdateTimer = null;
+      removeAutoUpdates = configureAutoUpdates();
+    }, 10_000);
 
     app.on('activate', () => {
       if (!mainWindow) {
@@ -153,6 +158,12 @@ if (squirrelStartup) {
   });
 
   app.on('before-quit', () => {
+    if (autoUpdateTimer) {
+      clearTimeout(autoUpdateTimer);
+      autoUpdateTimer = null;
+    }
+    removeAutoUpdates?.();
+    removeAutoUpdates = null;
     removeIpcHandlers?.();
     removeIpcHandlers = null;
     removeVideoProtocol?.();
