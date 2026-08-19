@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { resolveServiceBaseUrl } from './service-config';
 
 describe('resolveServiceBaseUrl', () => {
-  it('uses the runtime value before the build value and removes a trailing slash', () => {
+  it('uses the runtime value before the build value in development and removes a trailing slash', () => {
     expect(
       resolveServiceBaseUrl('http://localhost:13080/', 'https://build.example.com', false),
     ).toBe('http://localhost:13080');
@@ -13,11 +13,17 @@ describe('resolveServiceBaseUrl', () => {
     expect(resolveServiceBaseUrl('', '', false)).toBe('http://localhost:13080');
   });
 
-  it('requires HTTPS in a packaged application', () => {
-    expect(() => resolveServiceBaseUrl('http://service.example.com', '', true)).toThrow(
+  it('uses only the embedded build value in a packaged application', () => {
+    expect(resolveServiceBaseUrl('http://localhost:13080', 'https://lvms.ilscp.net/', true)).toBe(
+      'https://lvms.ilscp.net',
+    );
+  });
+
+  it('requires an embedded HTTPS URL in a packaged application', () => {
+    expect(() => resolveServiceBaseUrl('', 'http://service.example.com', true)).toThrow(
       '배포된 프로그램은 HTTPS 서비스만 사용할 수 있습니다.',
     );
-    expect(resolveServiceBaseUrl('https://service.example.com/', '', true)).toBe(
+    expect(resolveServiceBaseUrl('', 'https://service.example.com/', true)).toBe(
       'https://service.example.com',
     );
   });

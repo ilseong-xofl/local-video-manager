@@ -45,7 +45,7 @@ export const VIDEO_METADATA_SEARCH_MAX_LENGTH = 200;
 export const VIDEO_LIBRARY_SEARCH_MAX_LENGTH = 200;
 export const VIDEO_TAG_NAME_MAX_LENGTH = 40;
 export const VIDEO_EDITOR_PRESET_NAME_MAX_LENGTH = 60;
-export const VIDEO_EDITOR_TEXT_PRESET_LIMIT = 5;
+export const VIDEO_EDITOR_TEXT_PRESET_LIMIT = 50;
 export const VIDEO_EDITOR_OVERLAY_IMAGE_MAX_LENGTH = 30_000_000;
 
 export const VIDEO_EDITOR_PLATFORM_RATIOS = {
@@ -67,6 +67,7 @@ export type LibraryVideoSortField = 'modifiedAt' | 'registeredAt';
 export type VideoReaction = 'hype' | 'unhype';
 export type LibraryVideoReactionFilter = VideoReaction | 'none';
 export type VideoEditorPlatform = keyof typeof VIDEO_EDITOR_PLATFORM_RATIOS;
+export const VIDEO_CAPTION_DAILY_LIMIT = 10;
 export const VIDEO_CAPTION_TARGET_LANGUAGES = ['ko', 'ja', 'en'] as const;
 export type VideoCaptionTargetLanguage = (typeof VIDEO_CAPTION_TARGET_LANGUAGES)[number];
 export const VIDEO_CAPTION_VARIATION_IDS = [1, 2, 3, 4] as const;
@@ -370,7 +371,7 @@ export interface VideoCaptionGenerationResult {
 }
 
 export interface CaptionDailyUsage {
-  limit: 5;
+  limit: typeof VIDEO_CAPTION_DAILY_LIMIT;
   remaining: number;
   resetAt: string;
   timeZone: 'Asia/Seoul';

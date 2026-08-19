@@ -22,7 +22,10 @@ import {
   type CaptionVariationId,
   type CaptionVariationSelection,
 } from './caption-generation-options';
-import { getCaptionGenerationErrorMessage } from './caption-generation-error';
+import {
+  CAPTION_DAILY_LIMIT_MESSAGE,
+  getCaptionGenerationErrorMessage,
+} from './caption-generation-error';
 import {
   VIDEO_EDITOR_FONT_MARKET_LABELS,
   VIDEO_EDITOR_FONT_OPTIONS_BY_MARKET,
@@ -849,7 +852,9 @@ export function VideoEditor({
 
   function openNewTextPresetDialog() {
     if (textPresets.length >= VIDEO_EDITOR_TEXT_PRESET_LIMIT) {
-      setTextPresetError('텍스트 프리셋은 최대 5개까지 저장할 수 있습니다.');
+      setTextPresetError(
+        `텍스트 프리셋은 최대 ${VIDEO_EDITOR_TEXT_PRESET_LIMIT}개까지 저장할 수 있습니다.`,
+      );
       return;
     }
 
@@ -1157,7 +1162,7 @@ export function VideoEditor({
     }
 
     if (captionDailyUsage.remaining === 0) {
-      setCaptionGenerationError('오늘 사용할 수 있는 캡션 생성 5회를 모두 사용했습니다.');
+      setCaptionGenerationError(CAPTION_DAILY_LIMIT_MESSAGE);
       return;
     }
 
@@ -1639,7 +1644,7 @@ export function VideoEditor({
                     selectedTextPreset
                       ? '현재 프리셋 업데이트 또는 새 프리셋 저장'
                       : textPresets.length >= VIDEO_EDITOR_TEXT_PRESET_LIMIT
-                        ? '텍스트 프리셋은 최대 5개까지 저장할 수 있습니다'
+                        ? `텍스트 프리셋은 최대 ${VIDEO_EDITOR_TEXT_PRESET_LIMIT}개까지 저장할 수 있습니다`
                         : '텍스트 프리셋 저장'
                   }
                 >
@@ -2658,7 +2663,7 @@ export function VideoEditor({
                   disabled={textPresetBusy || textPresets.length >= VIDEO_EDITOR_TEXT_PRESET_LIMIT}
                   title={
                     textPresets.length >= VIDEO_EDITOR_TEXT_PRESET_LIMIT
-                      ? '텍스트 프리셋은 최대 5개까지 저장할 수 있습니다'
+                      ? `텍스트 프리셋은 최대 ${VIDEO_EDITOR_TEXT_PRESET_LIMIT}개까지 저장할 수 있습니다`
                       : undefined
                   }
                 >

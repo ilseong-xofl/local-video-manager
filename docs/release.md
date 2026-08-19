@@ -9,11 +9,17 @@
 - background download
 - 사용자 승인 dialog 없음
 - download 완료 후 자동 재시작·설치
+- 운영 Service 주소 `https://lvms.ilscp.net`을 패키지에 빌드 시 삽입
 - GitHub 저장소 정보가 없으면 안전하게 비활성화
 
 `update-electron-app`의 `ElectronPublicUpdateService`와 사용자 dialog를 만들지 않는 custom update callback을 사용한다. 앱 DB는 설치 directory가 아니라 Electron user-data directory에 있으므로 binary 교체와 분리된다.
 
 GitHub Actions가 제공하는 `GITHUB_REPOSITORY` 값을 Windows 앱에 빌드 시 삽입한다. 따라서 GitHub owner와 repository 이름을 소스에 하드코딩하거나 별도 Repository variable로 등록하지 않는다.
+
+후보와 Release workflow의 `pnpm make` 단계는
+`LOCAL_VIDEO_MANAGER_SERVICE_URL=https://lvms.ilscp.net`을 함께 전달한다. 개발 앱은
+기본적으로 `http://localhost:13080`을 사용하지만 설치된 앱은 실행 환경 변수보다 이
+빌드 값을 우선하며, 빌드 값이 없거나 HTTPS가 아니면 Service 접근을 차단한다.
 
 ## 릴리스 절차
 
@@ -22,13 +28,13 @@ GitHub Actions가 제공하는 `GITHUB_REPOSITORY` 값을 Windows 앱에 빌드 
 3. 승인된 pull request를 `main`에 병합한다.
 4. GitHub Actions의 `CI` workflow를 수동 실행하고 branch는 `main`을 선택한다.
 5. `windows-candidate` artifact를 내려받아 [Windows 배포 승인 체크리스트](./windows-acceptance.md)를 수행한다.
-6. Windows 검수가 통과한 동일 commit에 버전 태그를 push한다. 예: 버전 `0.2.0`이면 `v0.2.0`.
+6. Windows 검수가 통과한 동일 commit에 버전 태그를 push한다. 예: 버전 `0.3.0`이면 `v0.3.0`.
 7. `release-windows.yml`이 Windows x64 installer를 다시 생성한다.
 8. workflow가 `SHA256SUMS.txt`, `RELEASES`, `.nupkg`, installer `.exe`를 공개 GitHub Release에 올린다.
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.3.0
+git push origin v0.3.0
 ```
 
 후보 workflow는 이미 공개된 버전과 같은 `package.json` 버전을 거부한다. 태그와 `package.json` 버전이 다르면 release workflow도 릴리스를 중단한다. GitHub Release 게시에는 Actions 기본 `GITHUB_TOKEN`만 사용하며 별도 AWS 계정, bucket, secret은 필요하지 않다.

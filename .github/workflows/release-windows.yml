@@ -27,7 +27,10 @@ jobs:
           if ($env:GITHUB_REF_NAME -ne $expectedTag) {
             throw "Release tag must be $expectedTag, received $env:GITHUB_REF_NAME"
           }
-      - run: pnpm make --arch=x64
+      - name: Build Windows release
+        env:
+          LOCAL_VIDEO_MANAGER_SERVICE_URL: https://lvms.ilscp.net
+        run: pnpm make --arch=x64
       - name: Verify outputs and create checksums
         shell: pwsh
         run: |

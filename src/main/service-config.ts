@@ -5,8 +5,9 @@ export function resolveServiceBaseUrl(
   buildValue = typeof LVM_SERVICE_URL === 'string' ? LVM_SERVICE_URL : '',
   packaged = false,
 ): string {
-  const configuredValue =
-    runtimeValue?.trim() || buildValue.trim() || (packaged ? '' : DEFAULT_DEVELOPMENT_SERVICE_URL);
+  const configuredValue = packaged
+    ? buildValue.trim()
+    : runtimeValue?.trim() || buildValue.trim() || DEFAULT_DEVELOPMENT_SERVICE_URL;
   if (!configuredValue) {
     throw new Error('서비스 주소가 설정되지 않았습니다.');
   }

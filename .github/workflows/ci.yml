@@ -64,6 +64,8 @@ jobs:
             throw "Version $version is already released as $tag. Increase package.json version before building a candidate."
           }
       - name: Build Windows installer candidate
+        env:
+          LOCAL_VIDEO_MANAGER_SERVICE_URL: https://lvms.ilscp.net
         run: pnpm make --arch=x64
       - name: Verify outputs and create checksums
         shell: pwsh

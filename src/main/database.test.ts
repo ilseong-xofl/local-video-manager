@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { LibraryVideoQuery } from '../shared/contracts';
+import { VIDEO_EDITOR_TEXT_PRESET_LIMIT, type LibraryVideoQuery } from '../shared/contracts';
 import { AppDatabase, applyPendingDatabaseRestore } from './database';
 import type { ScannedVideoFile } from './video-scanner';
 
@@ -1169,7 +1169,7 @@ describe('AppDatabase', () => {
         },
       ],
     };
-    const presets = Array.from({ length: 5 }, (_, index) =>
+    const presets = Array.from({ length: VIDEO_EDITOR_TEXT_PRESET_LIMIT }, (_, index) =>
       database.createVideoEditorTextPreset({ ...input, name: `프리셋 ${index + 1}` }),
     );
 
@@ -1201,7 +1201,7 @@ describe('AppDatabase', () => {
         },
       ],
     });
-    expect(database.getVideoEditorTextPresets()).toHaveLength(5);
+    expect(database.getVideoEditorTextPresets()).toHaveLength(VIDEO_EDITOR_TEXT_PRESET_LIMIT);
     expect(() =>
       database.updateVideoEditorTextPreset(presets[1].id, {
         ...input,
@@ -1210,14 +1210,17 @@ describe('AppDatabase', () => {
     ).toThrow('A video editor text preset with this name already exists.');
 
     expect(() =>
-      database.createVideoEditorTextPreset({ ...input, name: '여섯 번째 프리셋' }),
+      database.createVideoEditorTextPreset({
+        ...input,
+        name: `프리셋 ${VIDEO_EDITOR_TEXT_PRESET_LIMIT + 1}`,
+      }),
     ).toThrow('The video editor text preset limit has been reached.');
     expect(() => database.createVideoEditorTextPreset({ ...input, name: '프리셋 1' })).toThrow(
       'A video editor text preset with this name already exists.',
     );
 
     database.deleteVideoEditorTextPreset(presets[0].id);
-    expect(database.getVideoEditorTextPresets()).toHaveLength(4);
+    expect(database.getVideoEditorTextPresets()).toHaveLength(VIDEO_EDITOR_TEXT_PRESET_LIMIT - 1);
     expect(() => database.deleteVideoEditorTextPreset(presets[0].id)).toThrow(
       'Video editor text preset not found.',
     );

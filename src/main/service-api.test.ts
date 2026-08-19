@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { VIDEO_CAPTION_DAILY_LIMIT } from '../shared/contracts';
 import type { AuthTokenStore } from './auth-token-store';
 import { ServiceApiClient, ServiceApiError } from './service-api';
 
@@ -27,8 +28,8 @@ function jsonResponse(body: unknown, status = 200, headers?: HeadersInit): Respo
 }
 
 const unusedDailyUsage = {
-  limit: 5,
-  remaining: 5,
+  limit: VIDEO_CAPTION_DAILY_LIMIT,
+  remaining: VIDEO_CAPTION_DAILY_LIMIT,
   resetAt: '2026-08-18T15:00:00.000Z',
   timeZone: 'Asia/Seoul',
   used: 0,
@@ -102,7 +103,11 @@ describe('ServiceApiClient', () => {
         jsonResponse({
           bottomText: '무너진 순간',
           caption: '새 캡션',
-          dailyUsage: { ...unusedDailyUsage, remaining: 4, used: 1 },
+          dailyUsage: {
+            ...unusedDailyUsage,
+            remaining: VIDEO_CAPTION_DAILY_LIMIT - 1,
+            used: 1,
+          },
           topText: '담장의 균열',
         }),
       );
@@ -117,7 +122,11 @@ describe('ServiceApiClient', () => {
     await expect(client.generate(request)).resolves.toEqual({
       bottomText: '무너진 순간',
       caption: '새 캡션',
-      dailyUsage: { ...unusedDailyUsage, remaining: 4, used: 1 },
+      dailyUsage: {
+        ...unusedDailyUsage,
+        remaining: VIDEO_CAPTION_DAILY_LIMIT - 1,
+        used: 1,
+      },
       topText: '담장의 균열',
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -158,12 +167,16 @@ describe('ServiceApiClient', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('does not send a generation request after the server reports 5/5 usage', async () => {
+  it('does not send a generation request after the server reports 10/10 usage', async () => {
     tokenStore.token = 'signed-bearer-token';
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
       jsonResponse({
         ...authenticatedAccess,
-        dailyUsage: { ...unusedDailyUsage, remaining: 0, used: 5 },
+        dailyUsage: {
+          ...unusedDailyUsage,
+          remaining: 0,
+          used: VIDEO_CAPTION_DAILY_LIMIT,
+        },
       }),
     );
     const client = new ServiceApiClient('https://service.example.com', tokenStore, fetchMock);
@@ -177,7 +190,7 @@ describe('ServiceApiClient', () => {
       }),
     ).rejects.toMatchObject({
       code: 'DAILY_CAPTION_LIMIT_REACHED',
-      message: '오늘 사용할 수 있는 캡션 생성 5회를 모두 사용했습니다.',
+      message: '오늘 사용할 수 있는 캡션 생성 10회를 모두 사용했습니다.',
       status: 429,
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);

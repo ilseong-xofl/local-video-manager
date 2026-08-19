@@ -25,6 +25,11 @@ pnpm start
 개발 앱은 위 로컬 서비스 주소를 기본으로 사용한다. 다른 주소가 필요한
 특수한 테스트에서만 `LOCAL_VIDEO_MANAGER_SERVICE_URL`을 지정한다.
 
+Windows 후보와 Release 패키지는 GitHub Actions의 `pnpm make` 단계에서
+`LOCAL_VIDEO_MANAGER_SERVICE_URL=https://lvms.ilscp.net`을 빌드 값으로 삽입한다.
+설치된 앱은 실행 환경 변수를 사용하지 않고 패키지에 삽입된 HTTPS 주소만 사용하므로
+별도 `.env` 파일이 필요하지 않다.
+
 `better-sqlite3`는 native module이므로 Mac에서는 Mac용으로 설치되고, Forge가 Windows packaging 시 Windows용으로 다시 빌드한다. Mac의 `node_modules`를 Windows artifact에 복사하지 않는다.
 
 ## Windows 검증
