@@ -17,6 +17,8 @@ import type {
   VideoScanSummary,
 } from '../shared/contracts';
 import {
+  ACCOUNT_PASSWORD_MAX_LENGTH,
+  ACCOUNT_PASSWORD_MIN_LENGTH,
   VIDEO_LIBRARY_SEARCH_MAX_LENGTH,
   VIDEO_METADATA_SEARCH_MAX_LENGTH,
   VIDEO_SOURCE_CAPTION_MAX_LENGTH,
@@ -174,6 +176,7 @@ interface AppProps {
   captionDailyUsage: CaptionDailyUsage;
   currentUser: AppAuthenticatedUser;
   onCaptionDailyUsageChange(dailyUsage: CaptionDailyUsage): void;
+  onChangePassword(password: string): Promise<void>;
   onSignOut(): Promise<void>;
 }
 
@@ -182,6 +185,7 @@ export function App({
   captionEnabled,
   currentUser,
   onCaptionDailyUsageChange,
+  onChangePassword,
   onSignOut,
 }: AppProps) {
   const [state, setState] = useState<BootstrapState | null>(null);
@@ -196,6 +200,10 @@ export function App({
   const [scanCompletedOpen, setScanCompletedOpen] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [passwordChangeOpen, setPasswordChangeOpen] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [passwordChangeError, setPasswordChangeError] = useState<string | null>(null);
   const [tags, setTags] = useState<ManagedVideoTag[]>([]);
   const [tagManagerOpen, setTagManagerOpen] = useState(false);
   const [newTagName, setNewTagName] = useState('');
@@ -302,6 +310,7 @@ export function App({
       !editingViewCountVideo &&
       !editingVideo &&
       !tagManagerOpen &&
+      !passwordChangeOpen &&
       !scanningFolder &&
       !scanCompletedOpen
     ) {
@@ -323,6 +332,8 @@ export function App({
           closeMetadataEditor();
         } else if (tagManagerOpen) {
           closeTagManager();
+        } else if (passwordChangeOpen && !changingPassword) {
+          closePasswordChange();
         }
       }
     };
@@ -339,11 +350,13 @@ export function App({
     editingViewCountVideo,
     metadataSearchOpen,
     playingVideo,
+    passwordChangeOpen,
     scanCompletedOpen,
     scanningFolder,
     savingViewCount,
     tagManagerBusy,
     tagManagerOpen,
+    changingPassword,
     viewingVideo,
   ]);
 
@@ -470,6 +483,48 @@ export function App({
       setDatabaseError('올바른 Local Video Manager 백업 파일인지 확인한 뒤 다시 시도하세요.');
     } finally {
       setRestoringDatabase(false);
+    }
+  }
+
+  function openPasswordChange() {
+    setSettingsOpen(false);
+    setNewPassword('');
+    setPasswordChangeError(null);
+    setPasswordChangeOpen(true);
+  }
+
+  function closePasswordChange() {
+    if (changingPassword) {
+      return;
+    }
+    setPasswordChangeOpen(false);
+    setNewPassword('');
+    setPasswordChangeError(null);
+  }
+
+  async function submitPasswordChange(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (changingPassword) {
+      return;
+    }
+    if (
+      newPassword.length < ACCOUNT_PASSWORD_MIN_LENGTH ||
+      newPassword.length > ACCOUNT_PASSWORD_MAX_LENGTH
+    ) {
+      setPasswordChangeError(
+        `비밀번호는 ${ACCOUNT_PASSWORD_MIN_LENGTH}자 이상, ${ACCOUNT_PASSWORD_MAX_LENGTH}자 이하로 입력해 주세요.`,
+      );
+      return;
+    }
+
+    setChangingPassword(true);
+    setPasswordChangeError(null);
+    try {
+      await onChangePassword(newPassword);
+    } catch {
+      setPasswordChangeError('비밀번호를 변경하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+    } finally {
+      setChangingPassword(false);
     }
   }
 
@@ -1148,6 +1203,30 @@ export function App({
                         <strong title={currentUser.email}>{currentUser.displayName}</strong>
                         <small title={currentUser.email}>{currentUser.email}</small>
                       </div>
+                      <button type="button" role="menuitem" onClick={openPasswordChange}>
+                        <span className="settings-item-icon">
+                          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <circle
+                              cx="8.5"
+                              cy="12"
+                              r="3.5"
+                              stroke="currentColor"
+                              strokeWidth="1.7"
+                            />
+                            <path
+                              d="M12 12h8M17 12v3M20 12v2"
+                              stroke="currentColor"
+                              strokeWidth="1.7"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </span>
+                        <span>
+                          <strong>비밀번호 변경</strong>
+                          <small>새 비밀번호 설정</small>
+                        </span>
+                      </button>
                       <button type="button" role="menuitem" onClick={() => void onSignOut()}>
                         <span className="settings-item-icon">
                           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -1557,6 +1636,9 @@ export function App({
               <span className="onboarding-version" title={currentUser.email}>
                 {currentUser.displayName} · v{state.appVersion}
               </span>
+              <button type="button" onClick={openPasswordChange}>
+                비밀번호 변경
+              </button>
               <button type="button" onClick={() => void onSignOut()}>
                 로그아웃
               </button>
@@ -1781,6 +1863,86 @@ export function App({
           </div>
         </section>
       )}
+
+      {passwordChangeOpen ? (
+        <div
+          className="metadata-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closePasswordChange();
+            }
+          }}
+        >
+          <section
+            className="metadata-modal password-change-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="password-change-title"
+          >
+            <header className="metadata-header">
+              <div>
+                <p className="eyebrow">ACCOUNT SECURITY</p>
+                <h2 id="password-change-title">비밀번호 변경</h2>
+                <p>변경이 완료되면 자동으로 로그아웃됩니다.</p>
+              </div>
+              <button
+                className="metadata-close-button"
+                type="button"
+                onClick={closePasswordChange}
+                aria-label="비밀번호 변경 닫기"
+                disabled={changingPassword}
+              >
+                ×
+              </button>
+            </header>
+            <form
+              className="metadata-form password-change-form"
+              onSubmit={(event) => void submitPasswordChange(event)}
+            >
+              <label htmlFor="new-account-password">
+                <span>새 비밀번호</span>
+                <input
+                  id="new-account-password"
+                  type="password"
+                  autoComplete="new-password"
+                  autoFocus
+                  required
+                  minLength={ACCOUNT_PASSWORD_MIN_LENGTH}
+                  maxLength={ACCOUNT_PASSWORD_MAX_LENGTH}
+                  value={newPassword}
+                  onChange={(event) => {
+                    setNewPassword(event.target.value);
+                    setPasswordChangeError(null);
+                  }}
+                  disabled={changingPassword}
+                  aria-describedby="password-change-help"
+                />
+                <small id="password-change-help">
+                  {ACCOUNT_PASSWORD_MIN_LENGTH}자 이상, {ACCOUNT_PASSWORD_MAX_LENGTH}자 이하
+                </small>
+              </label>
+              {passwordChangeError ? (
+                <p className="metadata-error" role="alert">
+                  {passwordChangeError}
+                </p>
+              ) : null}
+              <div className="metadata-actions">
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={closePasswordChange}
+                  disabled={changingPassword}
+                >
+                  취소
+                </button>
+                <button className="primary-button" type="submit" disabled={changingPassword}>
+                  {changingPassword ? '변경 중…' : '비밀번호 변경'}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
 
       {scanningFolder ? (
         <div className="scan-backdrop">

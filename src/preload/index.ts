@@ -5,6 +5,7 @@ import { IPC_CHANNELS, type LocalVideoManagerApi } from '../shared/contracts';
 const api: LocalVideoManagerApi = {
   getAuthState: () => ipcRenderer.invoke(IPC_CHANNELS.getAuthState),
   signIn: (email, password) => ipcRenderer.invoke(IPC_CHANNELS.signIn, email, password),
+  changePassword: (password) => ipcRenderer.invoke(IPC_CHANNELS.changePassword, password),
   signOut: () => ipcRenderer.invoke(IPC_CHANNELS.signOut),
   quitApp: () => ipcRenderer.invoke(IPC_CHANNELS.quitApp),
   onAuthStateChanged: (listener) => {

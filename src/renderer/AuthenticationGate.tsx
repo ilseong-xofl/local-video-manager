@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 
-import type { AppAuthState, CaptionDailyUsage } from '../shared/contracts';
+import {
+  ACCOUNT_PASSWORD_MAX_LENGTH,
+  ACCOUNT_PASSWORD_MIN_LENGTH,
+  type AppAuthState,
+  type CaptionDailyUsage,
+} from '../shared/contracts';
 import { companyEmailFromId } from '../shared/company-account';
 import { App } from './App';
 
@@ -118,6 +123,11 @@ export function AuthenticationGate() {
     }
   }
 
+  async function changePassword(newPassword: string) {
+    const state = await window.localVideoManager.changePassword(newPassword);
+    setAuthState(state);
+  }
+
   if (!authState) {
     return (
       <main className="auth-shell">
@@ -194,8 +204,8 @@ export function AuthenticationGate() {
               <span>비밀번호</span>
               <input
                 autoComplete="current-password"
-                maxLength={128}
-                minLength={10}
+                maxLength={ACCOUNT_PASSWORD_MAX_LENGTH}
+                minLength={ACCOUNT_PASSWORD_MIN_LENGTH}
                 onChange={(event) => setPassword(event.target.value)}
                 placeholder="비밀번호 입력"
                 required
@@ -228,6 +238,7 @@ export function AuthenticationGate() {
       captionDailyUsage={authState.dailyUsage}
       currentUser={authState.user}
       onCaptionDailyUsageChange={updateCaptionDailyUsage}
+      onChangePassword={changePassword}
       onSignOut={signOut}
     />
   );

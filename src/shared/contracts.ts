@@ -1,6 +1,7 @@
 export const IPC_CHANNELS = {
   getAuthState: 'auth:get-state',
   signIn: 'auth:sign-in',
+  changePassword: 'auth:change-password',
   signOut: 'auth:sign-out',
   quitApp: 'app:quit',
   authStateChanged: 'auth:state-changed',
@@ -47,6 +48,8 @@ export const VIDEO_TAG_NAME_MAX_LENGTH = 40;
 export const VIDEO_EDITOR_PRESET_NAME_MAX_LENGTH = 60;
 export const VIDEO_EDITOR_TEXT_PRESET_LIMIT = 50;
 export const VIDEO_EDITOR_OVERLAY_IMAGE_MAX_LENGTH = 30_000_000;
+export const ACCOUNT_PASSWORD_MIN_LENGTH = 8;
+export const ACCOUNT_PASSWORD_MAX_LENGTH = 24;
 
 export const VIDEO_EDITOR_PLATFORM_RATIOS = {
   instagram: ['9:16', '4:5', '1:1', '1.91:1'],
@@ -404,6 +407,7 @@ export type AppAuthState =
 export interface LocalVideoManagerApi {
   getAuthState(): Promise<AppAuthState>;
   signIn(email: string, password: string): Promise<AppAuthState>;
+  changePassword(password: string): Promise<AppAuthState>;
   signOut(): Promise<AppAuthState>;
   quitApp(): Promise<void>;
   onAuthStateChanged(listener: (state: AppAuthState) => void): () => void;

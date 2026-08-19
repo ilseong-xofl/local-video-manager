@@ -20,6 +20,7 @@
 - 현재 목록에 없는 과거 영상 검색과 URL·캡션 복사
 - 무결성·schema 검사와 복원 직전 자동 보존을 포함한 SQLite DB 백업·복원
 - 관리자 등록 계정을 확인하는 필수 로그인
+- 설정 메뉴에서 본인 비밀번호 변경 후 자동 로그아웃
 - Electron `safeStorage` 기반 Bearer 세션 보관과 주기적 사용 권한 재검사
 - 별도 `local-video-manager-service`를 통한 OpenAI 캡션 생성
 - 공개 GitHub Releases 기반 Squirrel.Windows 자동 업데이트

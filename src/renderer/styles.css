@@ -4092,6 +4092,14 @@ h2 {
   width: min(440px, 100%);
 }
 
+.password-change-modal {
+  width: min(440px, 100%);
+}
+
+.password-change-form {
+  gap: 14px;
+}
+
 .view-count-form {
   gap: 14px;
 }

@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { VIDEO_CAPTION_DAILY_LIMIT } from '../shared/contracts';
+import {
+  ACCOUNT_PASSWORD_MAX_LENGTH,
+  ACCOUNT_PASSWORD_MIN_LENGTH,
+  VIDEO_CAPTION_DAILY_LIMIT,
+} from '../shared/contracts';
 import type { AuthTokenStore } from './auth-token-store';
 import { ServiceApiClient, ServiceApiError } from './service-api';
 
@@ -215,6 +219,77 @@ describe('ServiceApiClient', () => {
     const client = new ServiceApiClient('https://service.example.com', tokenStore, fetchMock);
 
     await expect(client.signOut()).resolves.toEqual({ status: 'signed-out' });
+    expect(tokenStore.token).toBeNull();
+  });
+
+  it('changes the authenticated user password and clears the local token', async () => {
+    tokenStore.token = 'signed-bearer-token';
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ success: true }));
+    const client = new ServiceApiClient('https://service.example.com', tokenStore, fetchMock);
+
+    await expect(client.changePassword('new-password')).resolves.toEqual({
+      status: 'signed-out',
+    });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0][0]).toBe('https://service.example.com/api/v1/account/password');
+    expect(fetchMock.mock.calls[0][1]?.body).toBe(JSON.stringify({ password: 'new-password' }));
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('Authorization')).toBe(
+      'Bearer signed-bearer-token',
+    );
+    expect(tokenStore.token).toBeNull();
+  });
+
+  it('rejects passwords outside 8-24 characters before making a request', async () => {
+    tokenStore.token = 'signed-bearer-token';
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ServiceApiClient('https://service.example.com', tokenStore, fetchMock);
+
+    await expect(
+      client.changePassword('a'.repeat(ACCOUNT_PASSWORD_MIN_LENGTH - 1)),
+    ).rejects.toMatchObject({ code: 'VALIDATION_FAILED', status: 400 });
+    await expect(
+      client.changePassword('a'.repeat(ACCOUNT_PASSWORD_MAX_LENGTH + 1)),
+    ).rejects.toMatchObject({ code: 'VALIDATION_FAILED', status: 400 });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(tokenStore.token).toBe('signed-bearer-token');
+  });
+
+  it('keeps the local token when a password change is rejected without expiring auth', async () => {
+    tokenStore.token = 'signed-bearer-token';
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse(
+        {
+          error: {
+            code: 'PASSWORD_CHANGE_FAILED',
+            message: '비밀번호를 변경할 수 없는 계정입니다.',
+          },
+        },
+        409,
+      ),
+    );
+    const client = new ServiceApiClient('https://service.example.com', tokenStore, fetchMock);
+
+    await expect(client.changePassword('new-password')).rejects.toMatchObject({
+      code: 'PASSWORD_CHANGE_FAILED',
+      status: 409,
+    });
+    expect(tokenStore.token).toBe('signed-bearer-token');
+  });
+
+  it('clears the local token when password change authentication has expired', async () => {
+    tokenStore.token = 'expired-token';
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        jsonResponse({ error: { code: 'AUTH_REQUIRED', message: '로그인이 필요합니다.' } }, 401),
+      );
+    const client = new ServiceApiClient('https://service.example.com', tokenStore, fetchMock);
+
+    await expect(client.changePassword('new-password')).rejects.toMatchObject({
+      code: 'AUTH_REQUIRED',
+      status: 401,
+    });
     expect(tokenStore.token).toBeNull();
   });
 

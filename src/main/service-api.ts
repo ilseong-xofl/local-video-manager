@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  ACCOUNT_PASSWORD_MAX_LENGTH,
+  ACCOUNT_PASSWORD_MIN_LENGTH,
   VIDEO_CAPTION_DAILY_LIMIT,
   type AppAuthState,
   type CaptionDailyUsage,
@@ -142,6 +144,18 @@ function parseCaptionResponse(value: unknown): VideoCaptionGenerationResponse {
     };
   } catch {
     throw new ServiceApiError('캡션 응답 형식이 올바르지 않습니다.', 'INVALID_RESPONSE', 502);
+  }
+}
+
+function assertPasswordChangeResponse(value: unknown): void {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    Array.isArray(value) ||
+    Object.keys(value).length !== 1 ||
+    (value as Record<string, unknown>).success !== true
+  ) {
+    throw new ServiceApiError('서버 응답 형식이 올바르지 않습니다.', 'INVALID_RESPONSE', 502);
   }
 }
 
@@ -324,6 +338,42 @@ export class ServiceApiClient {
     } finally {
       await this.tokenStore.clear();
     }
+    return { status: 'signed-out' };
+  }
+
+  async changePassword(password: string): Promise<AppAuthState> {
+    if (
+      password.length < ACCOUNT_PASSWORD_MIN_LENGTH ||
+      password.length > ACCOUNT_PASSWORD_MAX_LENGTH
+    ) {
+      throw new ServiceApiError(
+        `비밀번호는 ${ACCOUNT_PASSWORD_MIN_LENGTH}자 이상, ${ACCOUNT_PASSWORD_MAX_LENGTH}자 이하로 입력해 주세요.`,
+        'VALIDATION_FAILED',
+        400,
+      );
+    }
+
+    const token = await this.tokenStore.read();
+    if (!token) {
+      throw new ServiceApiError('로그인이 필요합니다.', 'AUTH_REQUIRED', 401);
+    }
+
+    const response = await this.request(
+      '/api/v1/account/password',
+      { body: JSON.stringify({ password }), method: 'POST' },
+      AUTH_TIMEOUT_MS,
+      token,
+    );
+    if (!response.ok) {
+      const error = await this.toApiError(response);
+      if (error.status === 401 || error.code === 'AUTH_REQUIRED') {
+        await this.tokenStore.clear();
+      }
+      throw error;
+    }
+
+    assertPasswordChangeResponse(await readJson(response));
+    await this.tokenStore.clear();
     return { status: 'signed-out' };
   }
 

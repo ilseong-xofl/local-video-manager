@@ -130,6 +130,14 @@ export function registerIpcHandlers(
     broadcastAuthState(state);
     return state;
   });
+  handleProtected(IPC_CHANNELS.changePassword, async (_event, password: unknown) => {
+    if (typeof password !== 'string') {
+      throw new Error('새 비밀번호를 확인해 주세요.');
+    }
+    const state = await serviceClient.changePassword(password);
+    broadcastAuthState(state);
+    return state;
+  });
   ipcMain.handle(IPC_CHANNELS.quitApp, () => app.quit());
   handleProtected(IPC_CHANNELS.getBootstrapState, () => buildBootstrapState(database));
 
@@ -490,6 +498,7 @@ export function registerIpcHandlers(
     videoRenderManager.dispose();
     ipcMain.removeHandler(IPC_CHANNELS.getAuthState);
     ipcMain.removeHandler(IPC_CHANNELS.signIn);
+    ipcMain.removeHandler(IPC_CHANNELS.changePassword);
     ipcMain.removeHandler(IPC_CHANNELS.signOut);
     ipcMain.removeHandler(IPC_CHANNELS.quitApp);
     ipcMain.removeHandler(IPC_CHANNELS.getBootstrapState);
