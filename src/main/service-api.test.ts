@@ -1,10 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  ACCOUNT_PASSWORD_MAX_LENGTH,
-  ACCOUNT_PASSWORD_MIN_LENGTH,
-  VIDEO_CAPTION_DAILY_LIMIT,
-} from '../shared/contracts';
+import { ACCOUNT_PASSWORD_MAX_LENGTH, ACCOUNT_PASSWORD_MIN_LENGTH } from '../shared/contracts';
 import type { AuthTokenStore } from './auth-token-store';
 import { ServiceApiClient, ServiceApiError } from './service-api';
 
@@ -32,8 +28,8 @@ function jsonResponse(body: unknown, status = 200, headers?: HeadersInit): Respo
 }
 
 const unusedDailyUsage = {
-  limit: VIDEO_CAPTION_DAILY_LIMIT,
-  remaining: VIDEO_CAPTION_DAILY_LIMIT,
+  limit: 10,
+  remaining: 10,
   resetAt: '2026-08-18T15:00:00.000Z',
   timeZone: 'Asia/Seoul',
   used: 0,
@@ -109,7 +105,7 @@ describe('ServiceApiClient', () => {
           caption: '새 캡션',
           dailyUsage: {
             ...unusedDailyUsage,
-            remaining: VIDEO_CAPTION_DAILY_LIMIT - 1,
+            remaining: 9,
             used: 1,
           },
           topText: '담장의 균열',
@@ -128,7 +124,7 @@ describe('ServiceApiClient', () => {
       caption: '새 캡션',
       dailyUsage: {
         ...unusedDailyUsage,
-        remaining: VIDEO_CAPTION_DAILY_LIMIT - 1,
+        remaining: 9,
         used: 1,
       },
       topText: '담장의 균열',
@@ -171,15 +167,58 @@ describe('ServiceApiClient', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('does not send a generation request after the server reports 10/10 usage', async () => {
+  it('accepts a user-specific daily limit from the service', async () => {
     tokenStore.token = 'signed-bearer-token';
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
       jsonResponse({
         ...authenticatedAccess,
         dailyUsage: {
           ...unusedDailyUsage,
+          limit: 30,
+          remaining: 29,
+          used: 1,
+        },
+      }),
+    );
+    const client = new ServiceApiClient('https://service.example.com', tokenStore, fetchMock);
+
+    await expect(client.getAuthState()).resolves.toMatchObject({
+      dailyUsage: { limit: 30, remaining: 29, used: 1 },
+      status: 'authenticated',
+    });
+  });
+
+  it("accepts zero remaining when the service lowers a limit below today's usage", async () => {
+    tokenStore.token = 'signed-bearer-token';
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      jsonResponse({
+        ...authenticatedAccess,
+        dailyUsage: {
+          ...unusedDailyUsage,
+          limit: 10,
           remaining: 0,
-          used: VIDEO_CAPTION_DAILY_LIMIT,
+          used: 12,
+        },
+      }),
+    );
+    const client = new ServiceApiClient('https://service.example.com', tokenStore, fetchMock);
+
+    await expect(client.getAuthState()).resolves.toMatchObject({
+      dailyUsage: { limit: 10, remaining: 0, used: 12 },
+      status: 'authenticated',
+    });
+  });
+
+  it('does not send a generation request after the server reports an exhausted limit', async () => {
+    tokenStore.token = 'signed-bearer-token';
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      jsonResponse({
+        ...authenticatedAccess,
+        dailyUsage: {
+          ...unusedDailyUsage,
+          limit: 30,
+          remaining: 0,
+          used: 30,
         },
       }),
     );
@@ -194,7 +233,7 @@ describe('ServiceApiClient', () => {
       }),
     ).rejects.toMatchObject({
       code: 'DAILY_CAPTION_LIMIT_REACHED',
-      message: '오늘 사용할 수 있는 캡션 생성 10회를 모두 사용했습니다.',
+      message: '오늘 사용할 수 있는 캡션 생성 30회를 모두 사용했습니다.',
       status: 429,
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);

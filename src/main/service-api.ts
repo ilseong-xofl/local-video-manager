@@ -3,7 +3,6 @@ import { randomUUID } from 'node:crypto';
 import {
   ACCOUNT_PASSWORD_MAX_LENGTH,
   ACCOUNT_PASSWORD_MIN_LENGTH,
-  VIDEO_CAPTION_DAILY_LIMIT,
   type AppAuthState,
   type CaptionDailyUsage,
   type VideoCaptionGenerationRequest,
@@ -97,14 +96,16 @@ function parseCaptionDailyUsage(value: unknown): CaptionDailyUsage {
     Object.keys(body).some(
       (key) => !['used', 'limit', 'remaining', 'resetAt', 'timeZone'].includes(key),
     ) ||
-    body.limit !== VIDEO_CAPTION_DAILY_LIMIT ||
+    typeof body.limit !== 'number' ||
+    !Number.isSafeInteger(body.limit) ||
+    body.limit < 1 ||
     typeof body.used !== 'number' ||
-    !Number.isInteger(body.used) ||
+    !Number.isSafeInteger(body.used) ||
     body.used < 0 ||
-    body.used > body.limit ||
     typeof body.remaining !== 'number' ||
-    !Number.isInteger(body.remaining) ||
-    body.remaining !== body.limit - body.used ||
+    !Number.isSafeInteger(body.remaining) ||
+    body.remaining < 0 ||
+    body.remaining !== Math.max(0, body.limit - body.used) ||
     typeof body.resetAt !== 'string' ||
     !Number.isFinite(Date.parse(body.resetAt)) ||
     body.timeZone !== 'Asia/Seoul'
@@ -113,7 +114,7 @@ function parseCaptionDailyUsage(value: unknown): CaptionDailyUsage {
   }
 
   return {
-    limit: VIDEO_CAPTION_DAILY_LIMIT,
+    limit: body.limit,
     remaining: body.remaining,
     resetAt: body.resetAt,
     timeZone: 'Asia/Seoul',
@@ -389,7 +390,7 @@ export class ServiceApiClient {
     }
     if (accessState.dailyUsage.remaining === 0) {
       throw new ServiceApiError(
-        `오늘 사용할 수 있는 캡션 생성 ${VIDEO_CAPTION_DAILY_LIMIT}회를 모두 사용했습니다.`,
+        `오늘 사용할 수 있는 캡션 생성 ${accessState.dailyUsage.limit}회를 모두 사용했습니다.`,
         'DAILY_CAPTION_LIMIT_REACHED',
         429,
       );

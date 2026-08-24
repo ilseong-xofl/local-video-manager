@@ -58,6 +58,7 @@ interface VideoEditorProps {
   captionDailyUsage: CaptionDailyUsage;
   captionEnabled: boolean;
   onCaptionDailyUsageChange(dailyUsage: CaptionDailyUsage): void;
+  onCaptionDailyUsageRefresh(): Promise<void>;
   onBack(): void;
   video: LibraryVideoItem;
 }
@@ -293,6 +294,7 @@ export function VideoEditor({
   captionEnabled,
   onBack,
   onCaptionDailyUsageChange,
+  onCaptionDailyUsageRefresh,
   video,
 }: VideoEditorProps) {
   const [presets, setPresets] = useState<VideoEditorPreset[]>([]);
@@ -338,6 +340,7 @@ export function VideoEditor({
   const [currentGeneratedCaptionOptions, setCurrentGeneratedCaptionOptions] =
     useState<GeneratedCaptionOptions | null>(null);
   const [captionGenerationSaving, setCaptionGenerationSaving] = useState(false);
+  const [captionDailyUsageRefreshing, setCaptionDailyUsageRefreshing] = useState(false);
   const [captionGenerationError, setCaptionGenerationError] = useState<string | null>(null);
   const [videoCurrentTime, setVideoCurrentTime] = useState(0);
   const [videoDuration, setVideoDuration] = useState(0);
@@ -1222,6 +1225,15 @@ export function VideoEditor({
       setCaptionGenerationError('생성된 캡션을 히스토리에 저장하지 못했습니다.');
     } finally {
       setCaptionGenerationSaving(false);
+    }
+  }
+
+  async function refreshCaptionDailyUsage() {
+    setCaptionDailyUsageRefreshing(true);
+    try {
+      await onCaptionDailyUsageRefresh();
+    } finally {
+      setCaptionDailyUsageRefreshing(false);
     }
   }
 
@@ -2210,6 +2222,23 @@ export function VideoEditor({
                       >
                         {captionDailyUsage.used}/{captionDailyUsage.limit}
                       </span>
+                      <button
+                        aria-label="캡션 생성 사용량 새로고침"
+                        className="video-editor-caption-refresh-button"
+                        disabled={captionDailyUsageRefreshing}
+                        onClick={() => void refreshCaptionDailyUsage()}
+                        title="사용량 새로고침"
+                        type="button"
+                      >
+                        <svg
+                          aria-hidden="true"
+                          className={captionDailyUsageRefreshing ? 'refreshing' : undefined}
+                          viewBox="0 0 24 24"
+                        >
+                          <path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6" />
+                        </svg>
+                      </button>
+                      <span aria-hidden="true" className="video-editor-caption-action-divider" />
                       <button
                         type="button"
                         onClick={() => void generateCaption()}

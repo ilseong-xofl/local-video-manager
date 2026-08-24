@@ -17,7 +17,7 @@ describe('caption generation error message', () => {
 
   it('shows the KST daily quota warning returned through Electron IPC', () => {
     const error = new Error(
-      `Error invoking remote method 'video-caption:generate': Error: ${CAPTION_DAILY_LIMIT_MESSAGE}`,
+      "Error invoking remote method 'video-caption:generate': Error: 오늘 사용할 수 있는 캡션 생성 30회를 모두 사용했습니다.",
     );
 
     expect(getCaptionGenerationErrorMessage(error)).toBe(CAPTION_DAILY_LIMIT_MESSAGE);
