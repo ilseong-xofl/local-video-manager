@@ -1063,7 +1063,8 @@
   background: #4e4ec6;
 }
 
-.video-editor-caption-actions .video-editor-caption-history-button {
+.video-editor-caption-actions .video-editor-caption-history-button,
+.video-editor-caption-actions .video-editor-caption-refresh-button {
   display: grid;
   width: 32px;
   padding: 0;
@@ -1073,13 +1074,15 @@
   place-items: center;
 }
 
-.video-editor-caption-actions .video-editor-caption-history-button:hover:not(:disabled) {
+.video-editor-caption-actions .video-editor-caption-history-button:hover:not(:disabled),
+.video-editor-caption-actions .video-editor-caption-refresh-button:hover:not(:disabled) {
   border-color: #bfc1ec;
   background: #f2f2ff;
   color: #4e4ec6;
 }
 
-.video-editor-caption-history-button svg {
+.video-editor-caption-history-button svg,
+.video-editor-caption-refresh-button svg {
   width: 16px;
   height: 16px;
   fill: none;
@@ -1087,6 +1090,17 @@
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 1.8;
+}
+
+.video-editor-caption-refresh-button svg.refreshing {
+  animation: spin 750ms linear infinite;
+}
+
+.video-editor-caption-action-divider {
+  width: 1px;
+  height: 20px;
+  margin: 0 1px;
+  background: #e1e3ea;
 }
 
 .video-editor-caption-actions button:disabled {

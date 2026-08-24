@@ -238,6 +238,7 @@ export function AuthenticationGate() {
       captionDailyUsage={authState.dailyUsage}
       currentUser={authState.user}
       onCaptionDailyUsageChange={updateCaptionDailyUsage}
+      onCaptionDailyUsageRefresh={refreshAuthState}
       onChangePassword={changePassword}
       onSignOut={signOut}
     />

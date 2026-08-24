@@ -176,6 +176,7 @@ interface AppProps {
   captionDailyUsage: CaptionDailyUsage;
   currentUser: AppAuthenticatedUser;
   onCaptionDailyUsageChange(dailyUsage: CaptionDailyUsage): void;
+  onCaptionDailyUsageRefresh(): Promise<void>;
   onChangePassword(password: string): Promise<void>;
   onSignOut(): Promise<void>;
 }
@@ -185,6 +186,7 @@ export function App({
   captionEnabled,
   currentUser,
   onCaptionDailyUsageChange,
+  onCaptionDailyUsageRefresh,
   onChangePassword,
   onSignOut,
 }: AppProps) {
@@ -1022,6 +1024,7 @@ export function App({
         captionEnabled={captionEnabled}
         video={videoEditorVideo}
         onCaptionDailyUsageChange={onCaptionDailyUsageChange}
+        onCaptionDailyUsageRefresh={onCaptionDailyUsageRefresh}
         onBack={() => setVideoEditorVideo(null)}
       />
     );
