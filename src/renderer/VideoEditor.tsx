@@ -125,7 +125,7 @@ const PLATFORM_LABELS: Record<VideoEditorPlatform, string> = {
 };
 
 const DEFAULT_TEXT_STYLE: VideoEditorTextStyle = {
-  backgroundColor: '#111111',
+  backgroundColor: '#000000',
   backgroundOpacity: 1,
   fontFamily: 'Noto Sans KR',
   fontMarket: 'KR',
@@ -1796,17 +1796,13 @@ export function VideoEditor({
                   <div>
                     <button
                       className={
-                        selectedOverlay.style.backgroundColor === '#111111' ||
                         selectedOverlay.style.backgroundColor === '#000000'
                           ? 'video-editor-color-choice selected'
                           : 'video-editor-color-choice'
                       }
                       type="button"
-                      onClick={() => updateSelectedStyle({ backgroundColor: '#111111' })}
-                      aria-pressed={
-                        selectedOverlay.style.backgroundColor === '#111111' ||
-                        selectedOverlay.style.backgroundColor === '#000000'
-                      }
+                      onClick={() => updateSelectedStyle({ backgroundColor: '#000000' })}
+                      aria-pressed={selectedOverlay.style.backgroundColor === '#000000'}
                     >
                       <span className="video-editor-color-swatch black" />
                       검정
@@ -1826,7 +1822,6 @@ export function VideoEditor({
                     </button>
                     <label
                       className={
-                        selectedOverlay.style.backgroundColor !== '#111111' &&
                         selectedOverlay.style.backgroundColor !== '#000000' &&
                         selectedOverlay.style.backgroundColor !== '#FFFFFF'
                           ? 'video-editor-custom-color selected'
